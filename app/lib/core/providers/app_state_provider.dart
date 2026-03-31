@@ -270,41 +270,6 @@ final onboardingCompleteProvider = AsyncNotifierProvider<OnboardingNotifier, boo
 });
 
 // ============================================================================
-// Vault Path Configuration
-// ============================================================================
-
-/// Notifier for vault path display.
-///
-/// In Parachute Computer mode, the vault path is fetched from the server
-/// health endpoint for display purposes only (e.g., the onboarding ready screen).
-/// The vault path is no longer user-configurable or persisted to SharedPreferences.
-class VaultPathNotifier extends AsyncNotifier<String?> {
-  @override
-  Future<String?> build() async {
-    if (!isComputerFlavor) return null;
-    return _fetchServerVaultPath();
-  }
-
-  Future<String?> _fetchServerVaultPath() async {
-    // Vault path is no longer fetched from server in v2
-    return null;
-  }
-
-  /// Refresh vault path from server (call after server starts).
-  Future<void> refreshFromServer() async {
-    if (!isComputerFlavor) return;
-    final path = await _fetchServerVaultPath();
-    state = AsyncData(path);
-  }
-
-}
-
-/// Vault path provider with notifier for updates
-final vaultPathProvider = AsyncNotifierProvider<VaultPathNotifier, String?>(() {
-  return VaultPathNotifier();
-});
-
-// ============================================================================
 // App Version
 // ============================================================================
 
@@ -347,7 +312,6 @@ Future<void> resetSetup(WidgetRef ref) async {
   // Invalidate providers to force reload
   ref.invalidate(serverUrlProvider);
   ref.invalidate(serverModeProvider);
-  ref.invalidate(vaultPathProvider);
   ref.invalidate(onboardingCompleteProvider);
   ref.invalidate(appModeProvider);
 }

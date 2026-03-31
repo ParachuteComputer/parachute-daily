@@ -54,5 +54,3 @@ final serverTranscriptionAvailableProvider = Provider<bool>((ref) {
   return health != null && health.isHealthy && health.transcriptionAvailable;
 });
 
-// Note: vaultPathProvider is defined in app_state_provider.dart
-// It handles both local settings and fetching from server in Parachute Computer mode

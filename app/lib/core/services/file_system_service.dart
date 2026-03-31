@@ -41,17 +41,10 @@ class FileSystemService {
   /// and should not be used in new code.
   FileSystemService(this._moduleType);
 
-  /// Deprecated: Use fileSystemServiceProvider(ModuleType.daily) instead
-  @Deprecated('Use fileSystemServiceProvider(ModuleType.daily) instead')
+  /// Convenience factory for Daily module.
+  /// Prefer the Riverpod provider where Ref is available:
+  ///   ref.watch(dailyFileSystemServiceProvider)
   factory FileSystemService.daily() => FileSystemService(ModuleType.daily);
-
-  /// Deprecated: Use fileSystemServiceProvider(ModuleType.chat) instead
-  @Deprecated('Use fileSystemServiceProvider(ModuleType.chat) instead')
-  factory FileSystemService.chat() => FileSystemService(ModuleType.chat);
-
-  /// Deprecated: Use fileSystemServiceProvider(moduleType) instead
-  @Deprecated('Use fileSystemServiceProvider(moduleType) instead')
-  factory FileSystemService.forModule(ModuleType moduleType) => FileSystemService(moduleType);
 
   // ============================================================
   // One-time migrations
@@ -107,7 +100,7 @@ class FileSystemService {
         'parachute_chat_artifacts_folder',
         'parachute_chat_contexts_folder',
         'parachute_chat_imports_folder',
-        // Global vault path keys (VaultPathNotifier)
+        // Global vault path keys (removed in v2)
         'parachute_vault_path',
         'parachute_server_vault_path',
       ];
