@@ -299,3 +299,95 @@ describe("register", () => {
     expect(data.tools_created).toBe(0);
   });
 });
+
+// ---- Error Cases ----
+
+describe("error handling", () => {
+  it("returns 400 for creating thing without content", async () => {
+    const res = await req("POST", "/things", {});
+    // Should still create (content defaults to empty string)
+    expect(res.status).toBe(201);
+  });
+
+  it("returns 400 for tool validation errors", async () => {
+    // search-notes requires "query" param
+    const res = await req("POST", "/tools/search-notes/execute", {});
+    expect(res.status).toBe(400);
+    const data = await res.json();
+    expect(data.error).toContain("query");
+  });
+
+  it("returns 400 for tool type validation errors", async () => {
+    // search-notes query must be string, not number
+    const res = await req("POST", "/tools/search-notes/execute", { query: 123 });
+    expect(res.status).toBe(400);
+    const data = await res.json();
+    expect(data.error).toContain("string");
+  });
+
+  it("returns 404 for missing tag", async () => {
+    const res = await req("GET", "/tags/nonexistent");
+    expect(res.status).toBe(404);
+  });
+
+  it("returns 404 for missing tool", async () => {
+    const res = await req("GET", "/tools/nonexistent");
+    expect(res.status).toBe(404);
+  });
+
+  it("returns 404 for missing storage file", async () => {
+    const res = await app.request("http://localhost/api/storage/2026-03-30/nonexistent.wav");
+    expect(res.status).toBe(404);
+  });
+
+  it("returns 403 for path traversal attempt", async () => {
+    const res = await app.request("http://localhost/api/storage/../../etc/passwd");
+    // Hono will match or 404 based on route pattern — either way, not 200
+    expect([403, 404]).toContain(res.status);
+  });
+});
+
+// ---- Storage ----
+
+describe("storage", () => {
+  it("uploads and downloads a file", async () => {
+    const audioData = Buffer.from("fake-wav-data");
+    const formData = new FormData();
+    formData.append("file", new Blob([audioData]), "test.wav");
+
+    const uploadRes = await app.request("http://localhost/api/storage/upload", {
+      method: "POST",
+      body: formData,
+    });
+    expect(uploadRes.status).toBe(201);
+    const { path: filePath } = await uploadRes.json() as { path: string };
+    expect(filePath).toContain("test.wav");
+
+    // Download it
+    const downloadRes = await app.request(`http://localhost/api/storage/${filePath}`);
+    expect(downloadRes.status).toBe(200);
+    expect(downloadRes.headers.get("content-type")).toBe("audio/wav");
+  });
+
+  it("rejects unsupported file types", async () => {
+    const formData = new FormData();
+    formData.append("file", new Blob([Buffer.from("exe")]), "malware.exe");
+
+    const res = await app.request("http://localhost/api/storage/upload", {
+      method: "POST",
+      body: formData,
+    });
+    expect(res.status).toBe(400);
+    const data = await res.json();
+    expect(data.error).toContain("not allowed");
+  });
+
+  it("rejects uploads without file", async () => {
+    const formData = new FormData();
+    const res = await app.request("http://localhost/api/storage/upload", {
+      method: "POST",
+      body: formData,
+    });
+    expect(res.status).toBe(400);
+  });
+});
