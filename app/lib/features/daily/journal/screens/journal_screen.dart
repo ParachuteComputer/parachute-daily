@@ -10,7 +10,6 @@ import 'package:parachute/core/theme/design_tokens.dart';
 import 'package:parachute/core/providers/backend_health_provider.dart' show serverTranscriptionAvailableProvider;
 import 'package:parachute/core/providers/app_state_provider.dart' show apiKeyProvider;
 import 'package:parachute/core/providers/feature_flags_provider.dart' show aiServerUrlProvider;
-import 'package:parachute/core/providers/sync_provider.dart';
 import 'package:parachute/core/providers/connectivity_provider.dart' show isServerAvailableProvider;
 import 'package:parachute/core/services/tag_service.dart' show TagInfo, tagServiceProvider;
 import '../../recorder/providers/service_providers.dart';
@@ -64,9 +63,6 @@ class _JournalScreenState extends ConsumerState<JournalScreen> with WidgetsBindi
   JournalDay? _cachedJournal;
   DateTime? _cachedJournalDate;
 
-  // Track last known pull counter to detect changes
-  int? _lastPullCounter;
-
   @override
   void initState() {
     super.initState();
@@ -98,7 +94,6 @@ class _JournalScreenState extends ConsumerState<JournalScreen> with WidgetsBindi
     final isDark = theme.brightness == Brightness.dark;
 
     // Check if sync pulled new files - refresh providers if so
-    _handleSyncPullChanges(selectedDate);
 
     // Check if viewing today
     final isToday = _isToday(selectedDate);
@@ -247,20 +242,6 @@ class _JournalScreenState extends ConsumerState<JournalScreen> with WidgetsBindi
       _cachedJournal = null;
       _cachedJournalDate = null;
     }
-  }
-
-  void _handleSyncPullChanges(DateTime selectedDate) {
-    final pullCounter = ref.watch(syncPullCounterProvider);
-    if (_lastPullCounter != null && pullCounter > _lastPullCounter!) {
-      debugPrint('[JournalScreen] Sync pulled files, refreshing providers...');
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
-          ref.invalidate(selectedJournalProvider);
-          ref.read(journalRefreshTriggerProvider.notifier).state++;
-        }
-      });
-    }
-    _lastPullCounter = pullCounter;
   }
 
   // ========== Refresh and Scroll ==========

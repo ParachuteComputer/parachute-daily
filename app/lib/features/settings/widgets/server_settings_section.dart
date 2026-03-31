@@ -3,9 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:parachute/core/config/app_config.dart';
 import 'package:parachute/core/theme/design_tokens.dart';
 import 'package:parachute/core/providers/app_state_provider.dart'
-    show serverUrlProvider, apiKeyProvider;
+    show serverUrlProvider;
 import 'package:parachute/core/providers/feature_flags_provider.dart';
-import 'package:parachute/core/providers/sync_provider.dart';
 import 'package:parachute/core/services/backend_health_service.dart';
 
 /// Server connection settings section
@@ -53,12 +52,6 @@ class _ServerSettingsSectionState extends ConsumerState<ServerSettingsSection> {
 
       // Also update serverUrlProvider for app mode detection (validates URL)
       await ref.read(serverUrlProvider.notifier).setServerUrl(url.isEmpty ? null : url);
-
-      // Reinitialize sync with new server URL
-      if (url.isNotEmpty) {
-        final apiKey = await ref.read(apiKeyProvider.future);
-        await ref.read(syncProvider.notifier).reinitialize(url, apiKey: apiKey);
-      }
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

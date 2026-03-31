@@ -1,13 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:parachute/core/theme/design_tokens.dart';
-import 'package:parachute/core/providers/sync_provider.dart';
-import 'package:parachute/core/services/sync_service.dart' show SyncStatus;
 import '../models/journal_day.dart';
 import '../providers/journal_providers.dart';
 import 'package:parachute/features/settings/screens/settings_screen.dart';
 
-/// Journal screen header with date navigation and sync controls
+/// Journal screen header with date navigation
 class JournalHeader extends ConsumerWidget {
   final DateTime selectedDate;
   final bool isToday;
@@ -102,8 +100,15 @@ class JournalHeader extends ConsumerWidget {
                   },
           ),
 
-          // Sync/Refresh button with status indicator
-          _SyncButton(isDark: isDark, onRefresh: onRefresh),
+          // Refresh button
+          IconButton(
+            icon: Icon(
+              Icons.refresh,
+              color: isDark ? BrandColors.driftwood : BrandColors.charcoal,
+            ),
+            tooltip: 'Refresh',
+            onPressed: onRefresh,
+          ),
 
           // Settings button
           IconButton(
@@ -135,97 +140,6 @@ class JournalHeader extends ConsumerWidget {
     );
     if (picked != null) {
       ref.read(selectedJournalDateProvider.notifier).state = picked;
-    }
-  }
-}
-
-/// Sync button with status indicator
-class _SyncButton extends ConsumerWidget {
-  final bool isDark;
-  final VoidCallback onRefresh;
-
-  const _SyncButton({
-    required this.isDark,
-    required this.onRefresh,
-  });
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final syncState = ref.watch(syncProvider);
-    final syncAvailable = ref.watch(syncAvailableProvider);
-
-    // Don't show if sync not configured
-    if (!syncAvailable) {
-      return const SizedBox.shrink();
-    }
-
-    final color = isDark ? BrandColors.driftwood : BrandColors.charcoal;
-    final successColor = isDark ? BrandColors.nightTurquoise : BrandColors.turquoise;
-
-    Widget icon;
-    String tooltip;
-
-    if (syncState.isSyncing) {
-      // Syncing - show progress indicator
-      final progress = syncState.progress;
-      if (progress != null && progress.total > 0) {
-        // Show determinate progress
-        icon = SizedBox(
-          width: 20,
-          height: 20,
-          child: CircularProgressIndicator(
-            value: progress.percentage,
-            strokeWidth: 2,
-            valueColor: AlwaysStoppedAnimation<Color>(color),
-            backgroundColor: color.withValues(alpha: 0.2),
-          ),
-        );
-        tooltip = syncState.progressText ?? 'Syncing...';
-      } else {
-        // Show indeterminate progress
-        icon = SizedBox(
-          width: 20,
-          height: 20,
-          child: CircularProgressIndicator(
-            strokeWidth: 2,
-            valueColor: AlwaysStoppedAnimation<Color>(color),
-          ),
-        );
-        tooltip = 'Syncing...';
-      }
-    } else if (syncState.status == SyncStatus.success) {
-      // Just completed - show checkmark
-      icon = Icon(Icons.cloud_done, color: successColor);
-      tooltip = 'Synced';
-    } else if (syncState.hasError) {
-      // Error - show warning
-      icon = Icon(Icons.cloud_off, color: BrandColors.error);
-      tooltip = 'Sync error: ${syncState.errorMessage ?? "Unknown"}';
-    } else {
-      // Idle - show sync icon
-      icon = Icon(Icons.sync, color: color);
-      tooltip = syncState.lastSyncTime != null
-          ? 'Last sync: ${_formatSyncTime(syncState.lastSyncTime!)}'
-          : 'Tap to sync';
-    }
-
-    return IconButton(
-      icon: icon,
-      tooltip: tooltip,
-      onPressed: syncState.isSyncing ? null : onRefresh,
-    );
-  }
-
-  String _formatSyncTime(DateTime time) {
-    final now = DateTime.now();
-    final diff = now.difference(time);
-
-    if (diff.inSeconds < 60) {
-      return 'just now';
-    } else if (diff.inMinutes < 60) {
-      return '${diff.inMinutes}m ago';
-    } else {
-      return '${diff.inHours}h ago';
     }
   }
 }

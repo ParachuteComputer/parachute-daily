@@ -12,7 +12,6 @@ import 'package:marionette_flutter/marionette_flutter.dart';
 
 import 'core/theme/app_theme.dart';
 import 'core/providers/app_state_provider.dart';
-import 'core/providers/sync_provider.dart';
 import 'core/providers/core_service_providers.dart';
 import 'core/services/deep_link_service.dart';
 import 'core/services/file_system_service.dart';
@@ -159,9 +158,6 @@ class _DailyShellState extends ConsumerState<_DailyShell> with WidgetsBindingObs
     WidgetsBinding.instance.addObserver(this);
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      // Sync provider - ready when journal entries are created
-      ref.read(syncProvider.notifier);
-
       // Omi services - Bluetooth for connection, Capture for recording
       if (Platform.isAndroid || Platform.isIOS) {
         ref.read(omiBluetoothServiceProvider);
@@ -180,23 +176,6 @@ class _DailyShellState extends ConsumerState<_DailyShell> with WidgetsBindingObs
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // Handle sync lifecycle
-    final syncAvailable = ref.read(syncAvailableProvider);
-    if (syncAvailable) {
-      final syncNotifier = ref.read(syncProvider.notifier);
-      switch (state) {
-        case AppLifecycleState.resumed:
-          syncNotifier.onAppResumed();
-          break;
-        case AppLifecycleState.paused:
-        case AppLifecycleState.inactive:
-          syncNotifier.onAppPaused();
-          break;
-        default:
-          break;
-      }
-    }
-
     // Handle Omi auto-reconnect on app resume
     if (state == AppLifecycleState.resumed && (Platform.isAndroid || Platform.isIOS)) {
       final bluetoothService = ref.read(omiBluetoothServiceProvider);
