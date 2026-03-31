@@ -1,12 +1,17 @@
 {
   "name": "@parachute/local",
   "version": "0.1.0",
-  "description": "Parachute Daily self-hosted server — Hono + SQLite + MCP",
+  "description": "Parachute — self-hosted personal graph server with MCP",
   "type": "module",
   "main": "src/server.ts",
+  "bin": {
+    "parachute": "./bin/parachute"
+  },
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "start": "tsx src/server.ts",
+    "mcp": "tsx src/mcp-stdio.ts",
+    "cli": "tsx src/cli.ts",
     "test": "node --experimental-vm-modules node_modules/.bin/vitest run",
     "test:watch": "node --experimental-vm-modules node_modules/.bin/vitest"
   },

@@ -301,10 +301,6 @@ class _JournalScreenState extends ConsumerState<JournalScreen> with WidgetsBindi
     }
   }
 
-  String _formatDateStr(DateTime date) {
-    return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
-  }
-
   void _scrollToBottom() {
     if (_scrollController.hasClients) {
       Future.delayed(const Duration(milliseconds: 100), () {

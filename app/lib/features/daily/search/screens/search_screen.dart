@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:parachute/core/theme/design_tokens.dart';
+import '../../journal/models/journal_entry.dart';
+import '../../journal/providers/journal_providers.dart';
+import '../../journal/screens/entry_detail_screen.dart';
 import '../providers/search_providers.dart';
 import '../services/simple_text_search.dart';
 
@@ -26,6 +29,38 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   void _performSearch() {
     final query = _searchController.text.trim();
     ref.read(searchProvider.notifier).search(query);
+  }
+
+  void _navigateToEntry(BuildContext context, SimpleSearchResult result) {
+    final entry = JournalEntry(
+      id: result.id,
+      title: result.title,
+      content: result.fullContent,
+      type: JournalEntry.parseType(result.entryType ?? 'text'),
+      createdAt: result.date,
+    );
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => EntryDetailScreen(
+          entry: entry,
+          onSave: (updatedEntry) async {
+            final api = ref.read(dailyApiServiceProvider);
+            final metadata = {
+              'title': updatedEntry.title,
+              if (updatedEntry.tags != null && updatedEntry.tags!.isNotEmpty)
+                'tags': updatedEntry.tags,
+            };
+            await api.updateEntry(
+              updatedEntry.id,
+              content: updatedEntry.content,
+              metadata: metadata,
+            );
+          },
+        ),
+      ),
+    );
   }
 
   @override
@@ -205,6 +240,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
           result: result,
           query: searchState.query,
           isDark: isDark,
+          onTap: () => _navigateToEntry(context, result),
         );
       },
     );
@@ -216,11 +252,13 @@ class _SearchResultCard extends StatelessWidget {
   final SimpleSearchResult result;
   final String query;
   final bool isDark;
+  final VoidCallback onTap;
 
   const _SearchResultCard({
     required this.result,
     required this.query,
     required this.isDark,
+    required this.onTap,
   });
 
   @override
@@ -236,10 +274,7 @@ class _SearchResultCard extends StatelessWidget {
             : BorderSide.none,
       ),
       child: InkWell(
-        onTap: () {
-          // TODO: Navigate to journal entry
-          debugPrint('[Search] Tapped: ${result.id}');
-        },
+        onTap: onTap,
         borderRadius: BorderRadius.circular(12),
         child: Padding(
           padding: const EdgeInsets.all(16),

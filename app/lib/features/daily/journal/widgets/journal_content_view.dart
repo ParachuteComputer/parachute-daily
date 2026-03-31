@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:parachute/core/theme/design_tokens.dart';
 import '../models/journal_day.dart';
 import '../models/journal_entry.dart';
-import '../providers/journal_providers.dart';
 import '../providers/journal_screen_state_provider.dart';
 import 'journal_entry_row.dart';
 
@@ -64,10 +63,6 @@ class JournalContentView extends ConsumerWidget {
         ],
       ),
     );
-  }
-
-  String _dateStr(DateTime date) {
-    return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
   }
 
   Widget _buildJournalEntry(
