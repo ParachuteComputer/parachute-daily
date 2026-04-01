@@ -118,5 +118,27 @@ export function noteRoutes(store: SqliteStore): Hono {
     return c.json(links);
   });
 
+  // POST /:id/attachments — Add an attachment to a note
+  app.post("/:id/attachments", async (c) => {
+    const id = c.req.param("id");
+    const existing = store.getNote(id);
+    if (!existing) return c.json({ error: "Not found" }, 404);
+
+    const body = await c.req.json<{ path: string; mime_type: string }>();
+    if (!body.path || !body.mime_type) {
+      return c.json({ error: "path and mime_type are required" }, 400);
+    }
+
+    const attachment = store.addAttachment(id, body.path, body.mime_type);
+    return c.json(attachment, 201);
+  });
+
+  // GET /:id/attachments — Get attachments for a note
+  app.get("/:id/attachments", (c) => {
+    const id = c.req.param("id");
+    const attachments = store.getAttachments(id);
+    return c.json(attachments);
+  });
+
   return app;
 }

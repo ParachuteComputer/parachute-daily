@@ -143,7 +143,7 @@ class _MainShellState extends ConsumerState<MainShell> {
   }
 }
 
-/// Daily-only shell — no tabs, just the journal
+/// Main app shell — three tabs: Digest, Daily, Docs
 class _DailyShell extends ConsumerStatefulWidget {
   const _DailyShell();
 
@@ -152,6 +152,8 @@ class _DailyShell extends ConsumerStatefulWidget {
 }
 
 class _DailyShellState extends ConsumerState<_DailyShell> with WidgetsBindingObserver {
+  int _currentTab = 1; // Start on Daily (middle tab)
+
   @override
   void initState() {
     super.initState();
@@ -209,6 +211,12 @@ class _DailyShellState extends ConsumerState<_DailyShell> with WidgetsBindingObs
     }
   }
 
+  static const _tabs = [
+    _TabDef('Digest', Icons.auto_awesome_outlined, Icons.auto_awesome),
+    _TabDef('Daily', Icons.edit_note_outlined, Icons.edit_note),
+    _TabDef('Docs', Icons.description_outlined, Icons.description),
+  ];
+
   @override
   Widget build(BuildContext context) {
     // Listen for deep links
@@ -225,6 +233,7 @@ class _DailyShellState extends ConsumerState<_DailyShell> with WidgetsBindingObs
             if (year != null && month != null && day != null) {
               ref.read(selectedJournalDateProvider.notifier).state =
                   DateTime(year, month, day);
+              setState(() => _currentTab = 1); // Switch to Daily
             }
           }
         }
@@ -235,7 +244,86 @@ class _DailyShellState extends ConsumerState<_DailyShell> with WidgetsBindingObs
       body: Column(
         children: [
           const ModelDownloadBanner(),
-          const Expanded(child: HomeScreen()),
+          Expanded(
+            child: IndexedStack(
+              index: _currentTab,
+              children: const [
+                _DigestTab(),
+                HomeScreen(),
+                _DocsTab(),
+              ],
+            ),
+          ),
+        ],
+      ),
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: _currentTab,
+        onDestinationSelected: (i) => setState(() => _currentTab = i),
+        destinations: _tabs
+            .map((t) => NavigationDestination(
+                  icon: Icon(t.icon),
+                  selectedIcon: Icon(t.selectedIcon),
+                  label: t.label,
+                ))
+            .toList(),
+      ),
+    );
+  }
+}
+
+class _TabDef {
+  final String label;
+  final IconData icon;
+  final IconData selectedIcon;
+  const _TabDef(this.label, this.icon, this.selectedIcon);
+}
+
+/// Digest tab — AI-surfaced content (#digest, not #archived)
+class _DigestTab extends StatelessWidget {
+  const _DigestTab();
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.auto_awesome, size: 48, color: Theme.of(context).colorScheme.outline),
+          const SizedBox(height: 16),
+          Text('Digest', style: Theme.of(context).textTheme.headlineSmall),
+          const SizedBox(height: 8),
+          Text(
+            'AI-surfaced content will appear here',
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: Theme.of(context).colorScheme.outline,
+                ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Docs tab — persistent notes (#doc), searchable
+class _DocsTab extends StatelessWidget {
+  const _DocsTab();
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.description, size: 48, color: Theme.of(context).colorScheme.outline),
+          const SizedBox(height: 16),
+          Text('Docs', style: Theme.of(context).textTheme.headlineSmall),
+          const SizedBox(height: 8),
+          Text(
+            'Persistent notes and documents will live here',
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: Theme.of(context).colorScheme.outline,
+                ),
+          ),
         ],
       ),
     );

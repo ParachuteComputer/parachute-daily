@@ -161,6 +161,28 @@ class GraphApiService {
     return (data as List).map((j) => j as Map<String, dynamic>).toList();
   }
 
+  // ---- Attachments ----
+
+  /// Add an attachment to a note.
+  Future<Map<String, dynamic>?> addAttachment(
+    String noteId,
+    String path,
+    String mimeType,
+  ) async {
+    final data = await _post('/notes/$noteId/attachments', {
+      'path': path,
+      'mime_type': mimeType,
+    });
+    return data as Map<String, dynamic>?;
+  }
+
+  /// Get attachments for a note.
+  Future<List<Map<String, dynamic>>?> getAttachments(String noteId) async {
+    final data = await _get('/notes/$noteId/attachments', {});
+    if (data == null) return null;
+    return (data as List).map((j) => j as Map<String, dynamic>).toList();
+  }
+
   // ---- Storage ----
 
   /// Upload an audio file, returns the relative storage path.

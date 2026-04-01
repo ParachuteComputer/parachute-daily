@@ -249,7 +249,7 @@ class DailyApiService {
     }
   }
 
-  /// Upload audio and create a voice entry.
+  /// Upload audio and create a voice entry with attachment.
   Future<JournalEntry?> uploadVoiceEntry({
     required File audioFile,
     required int durationSeconds,
@@ -266,11 +266,31 @@ class DailyApiService {
     }
 
     // Create a note tagged daily + voice
-    // Content is empty until transcription completes
-    return createEntry(
+    final entry = await createEntry(
       content: '',
       metadata: {'type': 'voice'},
     );
+
+    // Attach the audio file to the note
+    if (entry != null && audioPath.isNotEmpty) {
+      await _addAttachment(entry.id, audioPath, 'audio/wav');
+    }
+
+    return entry;
+  }
+
+  /// Add an attachment to a note.
+  Future<void> _addAttachment(String noteId, String path, String mimeType) async {
+    final uri = Uri.parse('$baseUrl/api/notes/$noteId/attachments');
+    try {
+      await _client.post(
+        uri,
+        headers: _headers,
+        body: jsonEncode({'path': path, 'mime_type': mimeType}),
+      ).timeout(_timeout);
+    } catch (e) {
+      debugPrint('[DailyApiService] addAttachment error: $e');
+    }
   }
 
   /// Trigger LLM cleanup on an existing entry's content.
