@@ -11,8 +11,8 @@ Voice journaling app with offline-first architecture. AI agents plug in via MCP.
 ```
 User → Flutter App → GraphApiService → Parachute Daily Server (port 1940)
             ↓                                    ↓
-   Local SQLite cache                    SQLite graph database
-   (offline journal)                     (Things, Tags, Edges, Tools)
+   Local SQLite cache                    SQLite database
+   (offline journal)                     (Notes, Tags, Links, Attachments)
                                                  ↓
                                          MCP stdio server
                                          (Claude / AI agents)
@@ -22,7 +22,11 @@ User → Flutter App → GraphApiService → Parachute Daily Server (port 1940)
 
 ### Navigation
 
-Single-screen layout — no tabs. The app shows the Daily journal directly.
+Three-tab layout: **Digest**, **Daily**, **Docs**.
+
+- **Digest** — AI-surfaced content (`#digest AND NOT #archived`)
+- **Daily** — User captures (`#daily`), grouped by date
+- **Docs** — Persistent notes (`#doc`), searchable
 
 ---
 
@@ -32,7 +36,7 @@ Single-screen layout — no tabs. The app shows the Daily journal directly.
 lib/
 ├── main.dart                        # App entry, _DailyShell (single screen)
 ├── core/                            # Shared infrastructure
-│   ├── models/                      # Dart data models (Thing, JournalEntry, etc.)
+│   ├── models/                      # Dart data models (Note, etc.)
 │   ├── providers/                   # Riverpod state management
 │   │   ├── app_state_provider.dart  # Server config, app mode
 │   │   ├── voice_input_providers.dart
@@ -40,7 +44,7 @@ lib/
 │   │   ├── connectivity_provider.dart
 │   │   └── backend_health_provider.dart
 │   ├── services/
-│   │   ├── graph_api_service.dart   # HTTP client for v2 /api/* endpoints
+│   │   ├── graph_api_service.dart   # HTTP client for /api/* endpoints
 │   │   ├── file_system_service.dart # Local file I/O
 │   │   ├── transcription/           # Audio → text (CANONICAL location)
 │   │   ├── vad/                     # Voice activity detection (CANONICAL)
@@ -64,12 +68,23 @@ lib/
 
 ## Data Model
 
-The app talks to a v2 graph API. Everything is a **Thing**, differentiated by **Tags** (Tana-style supertags):
+Everything is a **Note**, differentiated by flat **Tags**:
 
-- **Thing**: Universal record with id, content, timestamps, status
-- **Tag**: Schema definition (e.g., `note`, `card`)
-- **ThingTag**: Typed metadata on a thing (tag + field values)
-- **Edge**: Directed relationship between two things
+- **Note**: Universal record with id, content, optional path, timestamps
+- **Tag**: Simple label (e.g., `#daily`, `#doc`, `#digest`, `#pinned`)
+- **Link**: Directed relationship between two notes (e.g., mentions, related-to)
+- **Attachment**: File associated with a note (audio, image)
+
+### Built-in Tags
+
+```
+#daily      — user-captured content (voice memos, typed notes)
+#doc        — persistent documents (blog drafts, grocery lists)
+#digest     — AI/system-created content for the user
+#pinned     — kept prominent (applies to any note)
+#archived   — user is done with this (applies to any note)
+#voice      — note was transcribed from voice
+```
 
 ### Server API
 
@@ -77,16 +92,14 @@ The `GraphApiService` targets these endpoints on the Hono server (default port 1
 
 | Endpoint | Purpose |
 |----------|---------|
-| `GET/POST /api/things` | Query / create things |
-| `GET/PATCH/DELETE /api/things/:id` | Get / update / delete a thing |
-| `GET /api/things/:id/edges` | Get edges for a thing |
-| `GET/POST /api/tags` | List / create tags |
-| `POST/DELETE /api/edges` | Create / delete edges |
+| `GET/POST /api/notes` | Query / create notes |
+| `GET/PATCH/DELETE /api/notes/:id` | Get / update / delete a note |
+| `POST/DELETE /api/notes/:id/tags` | Tag / untag a note |
+| `GET /api/notes/:id/links` | Get links for a note |
+| `GET /api/tags` | List tags with counts |
+| `POST/DELETE /api/links` | Create / delete links |
 | `GET /api/search?q=...` | Full-text search (FTS5) |
-| `POST /api/search/traverse` | Graph traversal |
-| `POST /api/tools/:name/execute` | Execute a declarative tool |
 | `POST /api/storage/upload` | Upload audio/image assets |
-| `POST /api/register` | Register app's tags and tools |
 | `GET /api/health` | Server health check |
 
 ### Offline Cache

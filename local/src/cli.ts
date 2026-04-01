@@ -59,12 +59,10 @@ async function runInit() {
   // Initialize database (schema + seed)
   const store = createStore(dbPath);
   const tags = store.listTags();
-  const tools = store.listTools();
 
   console.log(`Database: ${dbPath}`);
   console.log(`Assets:   ${assetsDir}`);
   console.log(`Tags:     ${tags.length} (${tags.map((t: any) => t.name).join(", ")})`);
-  console.log(`Tools:    ${tools.length}`);
   console.log(`\nParachute is ready. Run 'parachute serve' to start the server.`);
 }
 

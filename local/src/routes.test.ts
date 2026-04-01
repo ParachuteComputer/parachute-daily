@@ -41,93 +41,123 @@ describe("health", () => {
   });
 });
 
-// ---- Things CRUD ----
+// ---- Notes CRUD ----
 
-describe("things", () => {
-  it("creates a thing", async () => {
-    const res = await req("POST", "/things", {
+describe("notes", () => {
+  it("creates a note", async () => {
+    const res = await req("POST", "/notes", {
       content: "Morning walk",
-      tags: { "note": { entry_type: "text", date: "2026-03-30" } },
+      tags: ["daily"],
     });
     expect(res.status).toBe(201);
-    const thing = await res.json();
-    expect(thing.content).toBe("Morning walk");
-    expect(thing.tags).toHaveLength(1);
-    expect(thing.tags[0].tagName).toBe("note");
+    const note = await res.json();
+    expect(note.content).toBe("Morning walk");
+    expect(note.tags).toContain("daily");
   });
 
-  it("gets a thing by ID", async () => {
-    const createRes = await req("POST", "/things", { content: "Test" });
+  it("creates a note with path", async () => {
+    const res = await req("POST", "/notes", {
+      content: "# Grocery List",
+      path: "Grocery List",
+      tags: ["doc"],
+    });
+    expect(res.status).toBe(201);
+    const note = await res.json();
+    expect(note.path).toBe("Grocery List");
+  });
+
+  it("gets a note by ID", async () => {
+    const createRes = await req("POST", "/notes", { content: "Test" });
     const created = await createRes.json();
 
-    const res = await req("GET", `/things/${created.id}`);
+    const res = await req("GET", `/notes/${created.id}`);
     expect(res.status).toBe(200);
-    const thing = await res.json();
-    expect(thing.id).toBe(created.id);
+    const note = await res.json();
+    expect(note.id).toBe(created.id);
   });
 
-  it("returns 404 for missing thing", async () => {
-    const res = await req("GET", "/things/nonexistent");
+  it("returns 404 for missing note", async () => {
+    const res = await req("GET", "/notes/nonexistent");
     expect(res.status).toBe(404);
   });
 
-  it("updates a thing", async () => {
-    const createRes = await req("POST", "/things", { content: "Original" });
+  it("updates a note", async () => {
+    const createRes = await req("POST", "/notes", { content: "Original" });
     const created = await createRes.json();
 
-    const res = await req("PATCH", `/things/${created.id}`, { content: "Updated" });
+    const res = await req("PATCH", `/notes/${created.id}`, { content: "Updated" });
     expect(res.status).toBe(200);
     const updated = await res.json();
     expect(updated.content).toBe("Updated");
   });
 
-  it("deletes a thing", async () => {
-    const createRes = await req("POST", "/things", { content: "Delete me" });
+  it("deletes a note", async () => {
+    const createRes = await req("POST", "/notes", { content: "Delete me" });
     const created = await createRes.json();
 
-    const res = await req("DELETE", `/things/${created.id}`);
+    const res = await req("DELETE", `/notes/${created.id}`);
     expect(res.status).toBe(200);
 
-    const getRes = await req("GET", `/things/${created.id}`);
+    const getRes = await req("GET", `/notes/${created.id}`);
     expect(getRes.status).toBe(404);
   });
 
-  it("queries things by tag", async () => {
-    await req("POST", "/things", {
-      content: "Note 1",
-      tags: { "note": { date: "2026-03-30" } },
-    });
-    await req("POST", "/things", {
-      content: "Card 1",
-      tags: { card: { card_type: "reflection" } },
-    });
+  it("queries notes by tag", async () => {
+    await req("POST", "/notes", { content: "Note 1", tags: ["daily"] });
+    await req("POST", "/notes", { content: "Doc 1", tags: ["doc"] });
 
-    const res = await req("GET", "/things?tag=note");
+    const res = await req("GET", "/notes?tag=daily");
     expect(res.status).toBe(200);
-    const things = await res.json();
-    expect(things).toHaveLength(1);
-    expect(things[0].content).toBe("Note 1");
+    const notes = await res.json();
+    expect(notes).toHaveLength(1);
+    expect(notes[0].content).toBe("Note 1");
   });
 
-  it("gets edges for a thing", async () => {
-    const noteRes = await req("POST", "/things", { content: "Note" });
-    const note = await noteRes.json();
-    const personRes = await req("POST", "/things", {
-      content: "Alice",
-      id: "alice",
-    });
+  it("queries with exclude_tag", async () => {
+    await req("POST", "/notes", { content: "Active", tags: ["digest"] });
+    await req("POST", "/notes", { content: "Archived", tags: ["digest", "archived"] });
 
-    await req("POST", "/edges", {
-      source_id: note.id,
-      target_id: "alice",
+    const res = await req("GET", "/notes?tag=digest&exclude_tag=archived");
+    const notes = await res.json();
+    expect(notes).toHaveLength(1);
+    expect(notes[0].content).toBe("Active");
+  });
+
+  it("tags a note via POST", async () => {
+    const createRes = await req("POST", "/notes", { content: "Test" });
+    const created = await createRes.json();
+
+    const res = await req("POST", `/notes/${created.id}/tags`, { tags: ["pinned"] });
+    expect(res.status).toBe(200);
+    const note = await res.json();
+    expect(note.tags).toContain("pinned");
+  });
+
+  it("untags a note via DELETE", async () => {
+    const createRes = await req("POST", "/notes", { content: "Test", tags: ["daily", "voice"] });
+    const created = await createRes.json();
+
+    const res = await req("DELETE", `/notes/${created.id}/tags`, { tags: ["voice"] });
+    expect(res.status).toBe(200);
+    const note = await res.json();
+    expect(note.tags).toContain("daily");
+    expect(note.tags).not.toContain("voice");
+  });
+
+  it("gets links for a note", async () => {
+    await req("POST", "/notes", { content: "A", id: "a" });
+    await req("POST", "/notes", { content: "B", id: "b" });
+    await req("POST", "/links", {
+      source_id: "a",
+      target_id: "b",
       relationship: "mentions",
     });
 
-    const res = await req("GET", `/things/${note.id}/edges?direction=outbound`);
+    const res = await req("GET", `/notes/a/links?direction=outbound`);
     expect(res.status).toBe(200);
-    const edges = await res.json();
-    expect(edges).toHaveLength(1);
-    expect(edges[0].relationship).toBe("mentions");
+    const links = await res.json();
+    expect(links).toHaveLength(1);
+    expect(links[0].relationship).toBe("mentions");
   });
 });
 
@@ -139,44 +169,27 @@ describe("tags", () => {
     expect(res.status).toBe(200);
     const tags = await res.json();
     expect(tags.length).toBeGreaterThan(0);
-    expect(tags.some((t: any) => t.name === "note")).toBe(true);
-  });
-
-  it("creates a custom tag", async () => {
-    const res = await req("POST", "/tags", {
-      name: "meeting",
-      display_name: "Meeting",
-      description: "A meeting note",
-      schema: [{ name: "attendees", type: "text" }],
-    });
-    expect(res.status).toBe(201);
-    const tag = await res.json();
-    expect(tag.name).toBe("meeting");
-  });
-
-  it("gets a tag by name", async () => {
-    const res = await req("GET", "/tags/note");
-    expect(res.status).toBe(200);
-    const tag = await res.json();
-    expect(tag.schema.length).toBeGreaterThan(0);
+    expect(tags.some((t: any) => t.name === "daily")).toBe(true);
+    expect(tags.some((t: any) => t.name === "doc")).toBe(true);
+    expect(tags.some((t: any) => t.name === "digest")).toBe(true);
   });
 });
 
-// ---- Edges ----
+// ---- Links ----
 
-describe("edges", () => {
-  it("creates and deletes an edge", async () => {
-    await req("POST", "/things", { content: "A", id: "a" });
-    await req("POST", "/things", { content: "B", id: "b" });
+describe("links", () => {
+  it("creates and deletes a link", async () => {
+    await req("POST", "/notes", { content: "A", id: "a" });
+    await req("POST", "/notes", { content: "B", id: "b" });
 
-    const createRes = await req("POST", "/edges", {
+    const createRes = await req("POST", "/links", {
       source_id: "a",
       target_id: "b",
       relationship: "links-to",
     });
     expect(createRes.status).toBe(201);
 
-    const delRes = await req("DELETE", "/edges", {
+    const delRes = await req("DELETE", "/links", {
       source_id: "a",
       target_id: "b",
       relationship: "links-to",
@@ -185,48 +198,12 @@ describe("edges", () => {
   });
 });
 
-// ---- Tools ----
-
-describe("tools", () => {
-  it("lists builtin tools", async () => {
-    const res = await req("GET", "/tools");
-    const tools = await res.json();
-    expect(tools.length).toBeGreaterThan(0);
-    expect(tools.some((t: any) => t.name === "read-notes")).toBe(true);
-  });
-
-  it("executes a tool", async () => {
-    await req("POST", "/things", {
-      content: "Test note",
-      tags: { "note": { entry_type: "text", date: "2026-03-30" } },
-    });
-
-    const res = await req("POST", "/tools/read-notes/execute", {
-      date: "2026-03-30",
-    });
-    expect(res.status).toBe(200);
-    const data = await res.json();
-    expect(data.result).toHaveLength(1);
-  });
-
-  it("returns error for unknown tool", async () => {
-    const res = await req("POST", "/tools/nonexistent/execute", {});
-    expect(res.status).toBe(400);
-  });
-});
-
 // ---- Search ----
 
 describe("search", () => {
-  it("searches things by content", async () => {
-    await req("POST", "/things", {
-      content: "Walked up Flagstaff trail",
-      tags: { "note": {} },
-    });
-    await req("POST", "/things", {
-      content: "Meeting about Horizon",
-      tags: { "note": {} },
-    });
+  it("searches notes by content", async () => {
+    await req("POST", "/notes", { content: "Walked up Flagstaff trail", tags: ["daily"] });
+    await req("POST", "/notes", { content: "Meeting about Horizon", tags: ["daily"] });
 
     const res = await req("GET", "/search?q=Flagstaff");
     expect(res.status).toBe(200);
@@ -234,103 +211,18 @@ describe("search", () => {
     expect(results).toHaveLength(1);
     expect(results[0].content).toContain("Flagstaff");
   });
-
-  it("traverses the graph", async () => {
-    await req("POST", "/things", { content: "Note", id: "note1" });
-    await req("POST", "/things", { content: "Alice", id: "alice" });
-    await req("POST", "/edges", {
-      source_id: "note1",
-      target_id: "alice",
-      relationship: "mentions",
-    });
-
-    const res = await req("POST", "/search/traverse", {
-      thing_id: "note1",
-      direction: "outbound",
-      depth: 1,
-    });
-    expect(res.status).toBe(200);
-    const results = await res.json();
-    expect(results).toHaveLength(1);
-    expect(results[0].id).toBe("alice");
-  });
-});
-
-// ---- Register ----
-
-describe("register", () => {
-  it("registers custom tags and tools", async () => {
-    const res = await req("POST", "/register", {
-      app: "test-app",
-      tags: [
-        { name: "bookmark", display_name: "Bookmark", schema: [{ name: "url", type: "url" }] },
-      ],
-      tools: [
-        {
-          name: "read-bookmarks",
-          description: "Read bookmarks",
-          tool_type: "query",
-          definition: { action: "query_things", tags: ["bookmark"] },
-        },
-      ],
-    });
-    expect(res.status).toBe(200);
-    const data = await res.json();
-    expect(data.tags_created).toBe(1);
-    expect(data.tools_created).toBe(1);
-
-    // Verify they exist
-    const tagRes = await req("GET", "/tags/bookmark");
-    expect(tagRes.status).toBe(200);
-
-    const toolRes = await req("GET", "/tools/read-bookmarks");
-    expect(toolRes.status).toBe(200);
-  });
-
-  it("skips existing tags/tools", async () => {
-    const res = await req("POST", "/register", {
-      app: "parachute-daily",
-      tags: [{ name: "note", display_name: "Note" }],
-      tools: [{ name: "read-notes", description: "Read notes" }],
-    });
-    const data = await res.json();
-    expect(data.tags_created).toBe(0);
-    expect(data.tools_created).toBe(0);
-  });
 });
 
 // ---- Error Cases ----
 
 describe("error handling", () => {
-  it("returns 400 for creating thing without content", async () => {
-    const res = await req("POST", "/things", {});
-    // Should still create (content defaults to empty string)
+  it("returns 201 for note without content", async () => {
+    const res = await req("POST", "/notes", {});
     expect(res.status).toBe(201);
   });
 
-  it("returns 400 for tool validation errors", async () => {
-    // search-notes requires "query" param
-    const res = await req("POST", "/tools/search-notes/execute", {});
-    expect(res.status).toBe(400);
-    const data = await res.json();
-    expect(data.error).toContain("query");
-  });
-
-  it("returns 400 for tool type validation errors", async () => {
-    // search-notes query must be string, not number
-    const res = await req("POST", "/tools/search-notes/execute", { query: 123 });
-    expect(res.status).toBe(400);
-    const data = await res.json();
-    expect(data.error).toContain("string");
-  });
-
-  it("returns 404 for missing tag", async () => {
-    const res = await req("GET", "/tags/nonexistent");
-    expect(res.status).toBe(404);
-  });
-
-  it("returns 404 for missing tool", async () => {
-    const res = await req("GET", "/tools/nonexistent");
+  it("returns 404 for missing note", async () => {
+    const res = await req("GET", "/notes/nonexistent");
     expect(res.status).toBe(404);
   });
 
@@ -341,7 +233,6 @@ describe("error handling", () => {
 
   it("returns 403 for path traversal attempt", async () => {
     const res = await app.request("http://localhost/api/storage/../../etc/passwd");
-    // Hono will match or 404 based on route pattern — either way, not 200
     expect([403, 404]).toContain(res.status);
   });
 });

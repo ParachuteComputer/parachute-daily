@@ -13,10 +13,10 @@ const store = createStore(DB_PATH);
 const mcpTools = generateMcpTools(store.db);
 
 const server = new McpServer(
-  { name: "parachute-daily", version: "0.1.0" },
+  { name: "parachute-daily", version: "0.2.0" },
 );
 
-// Register each tool from the database as an MCP tool
+// Register each hardcoded tool as an MCP tool
 for (const tool of mcpTools) {
   server.tool(
     tool.name,

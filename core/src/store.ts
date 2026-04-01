@@ -1,26 +1,12 @@
 import type Database from "better-sqlite3";
-import type {
-  Store,
-  Thing,
-  Tag,
-  TagInput,
-  ThingTag,
-  Edge,
-  ToolDef,
-  QueryOpts,
-  TraverseOpts,
-} from "./types.js";
+import type { Store, Note, Link, Attachment, QueryOpts } from "./types.js";
 import { initSchema } from "./schema.js";
 import { seedBuiltins } from "./seed.js";
-import * as things from "./things.js";
-import * as tags from "./tags.js";
-import * as edgeOps from "./edges.js";
-import * as tools from "./tools.js";
-import { executeTool as executeToolFn } from "./executor.js";
+import * as noteOps from "./notes.js";
+import * as linkOps from "./links.js";
 
 /**
  * SQLite-backed Store implementation.
- * Works with any better-sqlite3 compatible database (including bun:sqlite via adapter).
  */
 export class SqliteStore implements Store {
   constructor(public readonly db: Database.Database) {
@@ -28,128 +14,83 @@ export class SqliteStore implements Store {
     seedBuiltins(db);
   }
 
-  // ---- Things ----
+  // ---- Notes ----
 
-  createThing(
-    content: string,
-    opts?: { id?: string; tags?: TagInput[]; createdBy?: string },
-  ): Thing {
-    return things.createThing(this.db, content, opts);
+  createNote(content: string, opts?: { id?: string; path?: string; tags?: string[] }): Note {
+    return noteOps.createNote(this.db, content, opts);
   }
 
-  getThing(
-    id: string,
-    opts?: { includeTags?: boolean; includeEdges?: boolean },
-  ): Thing | null {
-    return things.getThing(this.db, id, opts);
+  getNote(id: string): Note | null {
+    return noteOps.getNote(this.db, id);
   }
 
-  updateThing(
-    id: string,
-    updates: { content?: string; status?: string; tags?: TagInput[] },
-  ): Thing {
-    return things.updateThing(this.db, id, updates);
+  updateNote(id: string, updates: { content?: string; path?: string }): Note {
+    return noteOps.updateNote(this.db, id, updates);
   }
 
-  deleteThing(id: string): void {
-    things.deleteThing(this.db, id);
+  deleteNote(id: string): void {
+    noteOps.deleteNote(this.db, id);
   }
 
-  queryThings(opts: QueryOpts): Thing[] {
-    return things.queryThings(this.db, opts);
+  queryNotes(opts: QueryOpts): Note[] {
+    return noteOps.queryNotes(this.db, opts);
   }
 
-  searchThings(
-    query: string,
-    opts?: { tags?: string[]; limit?: number },
-  ): Thing[] {
-    return things.searchThings(this.db, query, opts);
+  searchNotes(query: string, opts?: { tags?: string[]; limit?: number }): Note[] {
+    return noteOps.searchNotes(this.db, query, opts);
   }
 
   // ---- Tags ----
 
-  createTag(tag: Omit<Tag, "createdAt" | "updatedAt">): Tag {
-    return tags.createTag(this.db, tag);
+  tagNote(noteId: string, tags: string[]): void {
+    noteOps.tagNote(this.db, noteId, tags);
   }
 
-  getTag(name: string): Tag | null {
-    return tags.getTag(this.db, name);
+  untagNote(noteId: string, tags: string[]): void {
+    noteOps.untagNote(this.db, noteId, tags);
   }
 
-  listTags(opts?: { publishedBy?: string }): (Tag & { count: number })[] {
-    return tags.listTags(this.db, opts);
+  listTags(): { name: string; count: number }[] {
+    return noteOps.listTags(this.db);
   }
 
-  updateTag(name: string, updates: Partial<Omit<Tag, "name" | "createdAt">>): Tag {
-    return tags.updateTag(this.db, name, updates);
+  // ---- Links ----
+
+  createLink(sourceId: string, targetId: string, relationship: string): Link {
+    return linkOps.createLink(this.db, sourceId, targetId, relationship);
   }
 
-  // ---- Thing-Tag ----
-
-  tagThing(
-    thingId: string,
-    tagName: string,
-    fields?: Record<string, unknown>,
-  ): void {
-    things.tagThing(this.db, thingId, tagName, fields);
+  deleteLink(sourceId: string, targetId: string, relationship: string): void {
+    linkOps.deleteLink(this.db, sourceId, targetId, relationship);
   }
 
-  untagThing(thingId: string, tagName: string): void {
-    things.untagThing(this.db, thingId, tagName);
+  getLinks(noteId: string, opts?: { direction?: "outbound" | "inbound" | "both" }): Link[] {
+    return linkOps.getLinks(this.db, noteId, opts);
   }
 
-  getThingTags(thingId: string): ThingTag[] {
-    return things.getThingTags(this.db, thingId);
+  // ---- Attachments ----
+
+  addAttachment(noteId: string, filePath: string, mimeType: string): Attachment {
+    const id = noteOps.generateId();
+    const now = new Date().toISOString();
+    this.db.prepare(
+      "INSERT INTO attachments (id, note_id, path, mime_type, created_at) VALUES (?, ?, ?, ?, ?)",
+    ).run(id, noteId, filePath, mimeType, now);
+
+    return { id, noteId, path: filePath, mimeType, createdAt: now };
   }
 
-  // ---- Edges ----
+  getAttachments(noteId: string): Attachment[] {
+    const rows = this.db.prepare(
+      "SELECT * FROM attachments WHERE note_id = ? ORDER BY created_at",
+    ).all(noteId) as { id: string; note_id: string; path: string; mime_type: string; created_at: string }[];
 
-  createEdge(
-    sourceId: string,
-    targetId: string,
-    relationship: string,
-    opts?: { properties?: Record<string, unknown>; createdBy?: string },
-  ): Edge {
-    return edgeOps.createEdge(this.db, sourceId, targetId, relationship, opts);
-  }
-
-  deleteEdge(
-    sourceId: string,
-    targetId: string,
-    relationship: string,
-  ): void {
-    edgeOps.deleteEdge(this.db, sourceId, targetId, relationship);
-  }
-
-  getEdges(
-    thingId: string,
-    opts?: {
-      relationship?: string;
-      direction?: "outbound" | "inbound" | "both";
-    },
-  ): Edge[] {
-    return edgeOps.getEdges(this.db, thingId, opts);
-  }
-
-  traverse(thingId: string, opts: TraverseOpts): Thing[] {
-    return edgeOps.traverse(this.db, thingId, opts);
-  }
-
-  // ---- Tools ----
-
-  registerTool(tool: Omit<ToolDef, "createdAt" | "updatedAt">): ToolDef {
-    return tools.registerTool(this.db, tool);
-  }
-
-  getTool(name: string): ToolDef | null {
-    return tools.getTool(this.db, name);
-  }
-
-  listTools(opts?: { publishedBy?: string; enabled?: boolean }): ToolDef[] {
-    return tools.listTools(this.db, opts);
-  }
-
-  executeTool(name: string, params: Record<string, unknown>): unknown {
-    return executeToolFn(this.db, name, params);
+    return rows.map((r) => ({
+      id: r.id,
+      noteId: r.note_id,
+      path: r.path,
+      mimeType: r.mime_type,
+      createdAt: r.created_at,
+    }));
   }
 }

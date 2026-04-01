@@ -1,63 +1,45 @@
 import type Database from "better-sqlite3";
 
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 export const SCHEMA_SQL = `
--- Nodes: the universal record
-CREATE TABLE IF NOT EXISTS things (
+-- Notes: the universal record
+CREATE TABLE IF NOT EXISTS notes (
   id TEXT PRIMARY KEY,
   content TEXT DEFAULT '',
-  created_at TEXT NOT NULL,
-  updated_at TEXT,
-  created_by TEXT DEFAULT 'user',
-  status TEXT DEFAULT 'active' CHECK(status IN ('active', 'archived', 'deleted'))
-);
-
--- Node types: Tana-style supertags with field schemas
-CREATE TABLE IF NOT EXISTS tags (
-  name TEXT PRIMARY KEY,
-  display_name TEXT DEFAULT '',
-  description TEXT DEFAULT '',
-  schema_json TEXT DEFAULT '[]',
-  icon TEXT DEFAULT '',
-  color TEXT DEFAULT '',
-  published_by TEXT DEFAULT '',
+  path TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT
 );
 
--- Typing: "this thing IS a note" (with typed field values)
-CREATE TABLE IF NOT EXISTS thing_tags (
-  thing_id TEXT NOT NULL REFERENCES things(id) ON DELETE CASCADE,
-  tag_name TEXT NOT NULL REFERENCES tags(name),
-  field_values_json TEXT DEFAULT '{}',
-  tagged_at TEXT NOT NULL,
-  PRIMARY KEY (thing_id, tag_name)
+-- Tags: flat labels
+CREATE TABLE IF NOT EXISTS tags (
+  name TEXT PRIMARY KEY
 );
 
--- Relationships: "this note MENTIONS that person"
-CREATE TABLE IF NOT EXISTS edges (
-  source_id TEXT NOT NULL REFERENCES things(id) ON DELETE CASCADE,
-  target_id TEXT NOT NULL REFERENCES things(id) ON DELETE CASCADE,
+-- Note-Tag join
+CREATE TABLE IF NOT EXISTS note_tags (
+  note_id TEXT NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+  tag_name TEXT NOT NULL REFERENCES tags(name),
+  PRIMARY KEY (note_id, tag_name)
+);
+
+-- Attachments: files associated with notes
+CREATE TABLE IF NOT EXISTS attachments (
+  id TEXT PRIMARY KEY,
+  note_id TEXT NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+  path TEXT NOT NULL,
+  mime_type TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
+-- Links: directed relationships between notes
+CREATE TABLE IF NOT EXISTS links (
+  source_id TEXT NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+  target_id TEXT NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
   relationship TEXT NOT NULL,
-  properties_json TEXT DEFAULT '{}',
-  created_by TEXT DEFAULT 'user',
   created_at TEXT NOT NULL,
   UNIQUE(source_id, target_id, relationship)
-);
-
--- MCP tool definitions: named graph operations
-CREATE TABLE IF NOT EXISTS tools (
-  name TEXT PRIMARY KEY,
-  display_name TEXT DEFAULT '',
-  description TEXT DEFAULT '',
-  tool_type TEXT DEFAULT 'query' CHECK(tool_type IN ('query', 'mutation')),
-  input_schema_json TEXT DEFAULT '{}',
-  definition_json TEXT DEFAULT '{}',
-  published_by TEXT DEFAULT '',
-  enabled TEXT DEFAULT 'true',
-  created_at TEXT NOT NULL,
-  updated_at TEXT
 );
 
 -- Schema version tracking
@@ -66,35 +48,35 @@ CREATE TABLE IF NOT EXISTS schema_version (
   applied_at TEXT NOT NULL
 );
 
--- Full-text search on thing content
-CREATE VIRTUAL TABLE IF NOT EXISTS things_fts USING fts5(
+-- Full-text search on note content
+CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
   content,
-  content='things',
+  content='notes',
   content_rowid='rowid'
 );
 
--- FTS triggers: keep the index in sync with things table
-CREATE TRIGGER IF NOT EXISTS things_fts_insert AFTER INSERT ON things BEGIN
-  INSERT INTO things_fts(rowid, content) VALUES (new.rowid, new.content);
+-- FTS triggers
+CREATE TRIGGER IF NOT EXISTS notes_fts_insert AFTER INSERT ON notes BEGIN
+  INSERT INTO notes_fts(rowid, content) VALUES (new.rowid, new.content);
 END;
 
-CREATE TRIGGER IF NOT EXISTS things_fts_delete AFTER DELETE ON things BEGIN
-  INSERT INTO things_fts(things_fts, rowid, content) VALUES('delete', old.rowid, old.content);
+CREATE TRIGGER IF NOT EXISTS notes_fts_delete AFTER DELETE ON notes BEGIN
+  INSERT INTO notes_fts(notes_fts, rowid, content) VALUES('delete', old.rowid, old.content);
 END;
 
-CREATE TRIGGER IF NOT EXISTS things_fts_update AFTER UPDATE OF content ON things BEGIN
-  INSERT INTO things_fts(things_fts, rowid, content) VALUES('delete', old.rowid, old.content);
-  INSERT INTO things_fts(rowid, content) VALUES (new.rowid, new.content);
+CREATE TRIGGER IF NOT EXISTS notes_fts_update AFTER UPDATE OF content ON notes BEGIN
+  INSERT INTO notes_fts(notes_fts, rowid, content) VALUES('delete', old.rowid, old.content);
+  INSERT INTO notes_fts(rowid, content) VALUES (new.rowid, new.content);
 END;
 
 -- Indexes
-CREATE INDEX IF NOT EXISTS idx_things_status ON things(status);
-CREATE INDEX IF NOT EXISTS idx_things_created ON things(created_at);
-CREATE INDEX IF NOT EXISTS idx_things_created_by ON things(created_by);
-CREATE INDEX IF NOT EXISTS idx_thing_tags_tag ON thing_tags(tag_name);
-CREATE INDEX IF NOT EXISTS idx_edges_source ON edges(source_id);
-CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target_id);
-CREATE INDEX IF NOT EXISTS idx_edges_rel ON edges(relationship);
+CREATE INDEX IF NOT EXISTS idx_notes_created ON notes(created_at);
+CREATE INDEX IF NOT EXISTS idx_notes_path ON notes(path) WHERE path IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_note_tags_note ON note_tags(note_id, tag_name);
+CREATE INDEX IF NOT EXISTS idx_note_tags_tag ON note_tags(tag_name, note_id);
+CREATE INDEX IF NOT EXISTS idx_attachments_note ON attachments(note_id);
+CREATE INDEX IF NOT EXISTS idx_links_source ON links(source_id);
+CREATE INDEX IF NOT EXISTS idx_links_target ON links(target_id);
 `;
 
 /**
@@ -103,10 +85,14 @@ CREATE INDEX IF NOT EXISTS idx_edges_rel ON edges(relationship);
 export function initSchema(db: Database.Database): void {
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
-  db.exec(SCHEMA_SQL);
 
-  // Run migrations
-  migrateToV2(db);
+  // Check if we need to migrate from v2
+  const hasOldTables = hasTable(db, "things");
+  if (hasOldTables) {
+    migrateFromV2(db);
+  }
+
+  db.exec(SCHEMA_SQL);
 
   // Record schema version
   db.prepare("INSERT OR REPLACE INTO schema_version (version, applied_at) VALUES (?, ?)").run(
@@ -115,41 +101,64 @@ export function initSchema(db: Database.Database): void {
   );
 }
 
+function hasTable(db: Database.Database, name: string): boolean {
+  const row = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(name);
+  return !!row;
+}
+
 /**
- * V2 migration: rename daily-note → note, remove person/project builtins,
- * rename tools (read-daily-notes → read-notes, read-recent-notes → read-recent).
+ * Migrate from v2 (things/thing_tags/edges/tools) to v3 (notes/note_tags/links).
  */
-function migrateToV2(db: Database.Database): void {
-  const applied = db.prepare("SELECT version FROM schema_version WHERE version = 2").get();
-  if (applied) return;
+function migrateFromV2(db: Database.Database): void {
+  const alreadyMigrated = hasTable(db, "notes");
+  if (alreadyMigrated) return;
 
-  // Rename tag: daily-note → note
-  const hasOld = db.prepare("SELECT name FROM tags WHERE name = 'daily-note'").get();
-  const hasNew = db.prepare("SELECT name FROM tags WHERE name = 'note'").get();
-  if (hasOld && !hasNew) {
-    db.prepare("INSERT INTO tags (name, display_name, description, schema_json, icon, color, published_by, created_at) SELECT 'note', 'Note', description, schema_json, icon, color, published_by, created_at FROM tags WHERE name = 'daily-note'").run();
-    db.prepare("UPDATE thing_tags SET tag_name = 'note' WHERE tag_name = 'daily-note'").run();
-    db.prepare("DELETE FROM tags WHERE name = 'daily-note'").run();
-  }
+  // Create new tables first
+  db.exec(SCHEMA_SQL);
 
-  // Remove person/project builtins (only if published by parachute-daily and unused)
-  for (const tag of ["person", "project"]) {
-    const usage = db.prepare("SELECT COUNT(*) as cnt FROM thing_tags WHERE tag_name = ?").get(tag) as { cnt: number } | undefined;
-    if (usage && usage.cnt === 0) {
-      db.prepare("DELETE FROM tags WHERE name = ? AND published_by = 'parachute-daily'").run(tag);
-    }
-  }
+  // Migrate things → notes
+  db.exec(`
+    INSERT INTO notes (id, content, created_at, updated_at)
+    SELECT id, content, created_at, updated_at FROM things WHERE status = 'active'
+  `);
 
-  // Rename tools
-  const toolRenames: [string, string][] = [
-    ["read-daily-notes", "read-notes"],
-    ["read-recent-notes", "read-recent"],
-  ];
-  for (const [oldName, newName] of toolRenames) {
-    const oldTool = db.prepare("SELECT name FROM tools WHERE name = ?").get(oldName);
-    const newTool = db.prepare("SELECT name FROM tools WHERE name = ?").get(newName);
-    if (oldTool && !newTool) {
-      db.prepare("DELETE FROM tools WHERE name = ?").run(oldName);
-    }
-  }
+  // Migrate thing_tags → note_tags (only tag names, drop field values)
+  // First ensure tags exist
+  db.exec(`
+    INSERT OR IGNORE INTO tags (name)
+    SELECT DISTINCT tag_name FROM thing_tags
+  `);
+
+  // Rename known tags
+  db.exec(`UPDATE tags SET name = 'daily' WHERE name = 'note'`);
+  db.exec(`UPDATE tags SET name = 'daily' WHERE name = 'daily-note'`);
+
+  db.exec(`
+    INSERT OR IGNORE INTO note_tags (note_id, tag_name)
+    SELECT tt.thing_id, CASE
+      WHEN tt.tag_name = 'note' THEN 'daily'
+      WHEN tt.tag_name = 'daily-note' THEN 'daily'
+      ELSE tt.tag_name
+    END
+    FROM thing_tags tt
+    WHERE tt.thing_id IN (SELECT id FROM notes)
+  `);
+
+  // Migrate edges → links
+  db.exec(`
+    INSERT OR IGNORE INTO links (source_id, target_id, relationship, created_at)
+    SELECT source_id, target_id, relationship, created_at FROM edges
+    WHERE source_id IN (SELECT id FROM notes) AND target_id IN (SELECT id FROM notes)
+  `);
+
+  // Drop old tables (order matters for foreign keys)
+  db.exec("DROP TABLE IF EXISTS thing_tags");
+  db.exec("DROP TABLE IF EXISTS edges");
+  db.exec("DROP TABLE IF EXISTS tools");
+  db.exec("DROP TABLE IF EXISTS things_fts");
+  db.exec("DROP TRIGGER IF EXISTS things_fts_insert");
+  db.exec("DROP TRIGGER IF EXISTS things_fts_delete");
+  db.exec("DROP TRIGGER IF EXISTS things_fts_update");
+  db.exec("DROP TABLE IF EXISTS things");
+  db.exec("DROP TABLE IF EXISTS tags"); // Will be recreated by SCHEMA_SQL with just name
 }

@@ -1,630 +1,383 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import Database from "better-sqlite3";
 import { SqliteStore } from "./store.js";
-import type { Thing, Edge } from "./types.js";
-import { validateFieldValues } from "./tags.js";
-import { BUILTIN_TAGS, BUILTIN_TOOLS } from "./seed.js";
+import { BUILTIN_TAGS } from "./seed.js";
+import { generateMcpTools } from "./mcp.js";
 
 let store: SqliteStore;
+let db: Database.Database;
 
 beforeEach(() => {
-  const db = new Database(":memory:");
+  db = new Database(":memory:");
   store = new SqliteStore(db);
-
-  // Create custom tags used by edge/traversal/tool tests
-  store.createTag({
-    name: "person",
-    displayName: "Person",
-    description: "A person",
-    schema: [{ name: "role", type: "text" }],
-  });
-  store.createTag({
-    name: "project",
-    displayName: "Project",
-    description: "A project",
-    schema: [{ name: "status", type: "select", options: ["active", "paused", "complete"] }],
-  });
 });
 
-// ---- Schema & Seed ----
+// ---- Notes CRUD ----
 
-describe("schema and seed", () => {
-  it("creates all tables", () => {
-    const tables = store.db
-      .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
-      .all() as { name: string }[];
-    const names = tables.map((t) => t.name);
-    expect(names).toContain("things");
-    expect(names).toContain("tags");
-    expect(names).toContain("thing_tags");
-    expect(names).toContain("edges");
-    expect(names).toContain("tools");
-    expect(names).toContain("schema_version");
+describe("notes", () => {
+  it("creates a note", () => {
+    const note = store.createNote("Morning walk");
+    expect(note.content).toBe("Morning walk");
+    expect(note.id).toBeTruthy();
+    expect(note.createdAt).toBeTruthy();
   });
 
-  it("seeds builtin tags", () => {
-    for (const tag of BUILTIN_TAGS) {
-      const found = store.getTag(tag.name);
-      expect(found).not.toBeNull();
-      expect(found!.displayName).toBe(tag.displayName);
-    }
+  it("creates a note with custom id", () => {
+    const note = store.createNote("Test", { id: "custom-id" });
+    expect(note.id).toBe("custom-id");
   });
 
-  it("seeds builtin tools", () => {
-    for (const tool of BUILTIN_TOOLS) {
-      const found = store.getTool(tool.name);
-      expect(found).not.toBeNull();
-      expect(found!.description).toBe(tool.description);
-    }
+  it("creates a note with path", () => {
+    const note = store.createNote("# Grocery List", { path: "Grocery List" });
+    expect(note.path).toBe("Grocery List");
   });
 
-  it("is idempotent — double init does not error", () => {
-    // Create a second store on the same DB
-    const store2 = new SqliteStore(store.db);
-    expect(store2.listTags().length).toBeGreaterThan(0);
-  });
-});
-
-// ---- Things CRUD ----
-
-describe("things", () => {
-  it("creates a thing with content", () => {
-    const thing = store.createThing("Hello world");
-    expect(thing.id).toBeTruthy();
-    expect(thing.content).toBe("Hello world");
-    expect(thing.status).toBe("active");
-    expect(thing.createdBy).toBe("user");
+  it("creates a note with tags", () => {
+    const note = store.createNote("Voice memo", { tags: ["daily", "voice"] });
+    expect(note.tags).toContain("daily");
+    expect(note.tags).toContain("voice");
   });
 
-  it("creates a thing with custom ID and tags", () => {
-    const thing = store.createThing("Voice entry", {
-      id: "2026-03-30-09-15-00-000000",
-      tags: [{ name: "note", fields: { entry_type: "voice", date: "2026-03-30" } }],
-      createdBy: "app",
-    });
-    expect(thing.id).toBe("2026-03-30-09-15-00-000000");
-    expect(thing.createdBy).toBe("app");
-    expect(thing.tags).toHaveLength(1);
-    expect(thing.tags![0].tagName).toBe("note");
-    expect(thing.tags![0].fieldValues.entry_type).toBe("voice");
+  it("gets a note by id", () => {
+    const created = store.createNote("Test");
+    const found = store.getNote(created.id);
+    expect(found).toBeTruthy();
+    expect(found!.id).toBe(created.id);
+    expect(found!.content).toBe("Test");
   });
 
-  it("gets a thing by ID with tags", () => {
-    const created = store.createThing("Test", {
-      tags: [{ name: "note", fields: { entry_type: "text" } }],
-    });
-    const found = store.getThing(created.id);
-    expect(found).not.toBeNull();
-    expect(found!.tags).toHaveLength(1);
+  it("returns null for missing note", () => {
+    expect(store.getNote("nonexistent")).toBeNull();
   });
 
-  it("returns null for missing thing", () => {
-    expect(store.getThing("nonexistent")).toBeNull();
-  });
-
-  it("updates thing content", () => {
-    const thing = store.createThing("Original");
-    const updated = store.updateThing(thing.id, { content: "Updated" });
+  it("updates note content", () => {
+    const note = store.createNote("Original");
+    const updated = store.updateNote(note.id, { content: "Updated" });
     expect(updated.content).toBe("Updated");
     expect(updated.updatedAt).toBeTruthy();
   });
 
-  it("updates thing status", () => {
-    const thing = store.createThing("To archive");
-    const updated = store.updateThing(thing.id, { status: "archived" });
-    expect(updated.status).toBe("archived");
+  it("updates note path", () => {
+    const note = store.createNote("Test");
+    const updated = store.updateNote(note.id, { path: "Notes/Test" });
+    expect(updated.path).toBe("Notes/Test");
   });
 
-  it("replaces tags on update", () => {
-    const thing = store.createThing("Tagged", {
-      tags: [{ name: "note", fields: { entry_type: "text" } }],
-    });
-    const updated = store.updateThing(thing.id, {
-      tags: [{ name: "card", fields: { card_type: "reflection" } }],
-    });
-    expect(updated.tags).toHaveLength(1);
-    expect(updated.tags![0].tagName).toBe("card");
+  it("deletes a note", () => {
+    const note = store.createNote("Delete me");
+    store.deleteNote(note.id);
+    expect(store.getNote(note.id)).toBeNull();
   });
 
-  it("deletes a thing and cascades", () => {
-    const thing = store.createThing("Delete me", {
-      tags: [{ name: "note" }],
-    });
-    store.deleteThing(thing.id);
-    expect(store.getThing(thing.id)).toBeNull();
-    // Tags should be gone too
-    expect(store.getThingTags(thing.id)).toHaveLength(0);
-  });
-});
+  it("cascade deletes tags and links", () => {
+    store.createNote("A", { id: "a", tags: ["daily"] });
+    store.createNote("B", { id: "b" });
+    store.createLink("a", "b", "mentions");
 
-// ---- Query Things ----
-
-describe("queryThings", () => {
-  beforeEach(() => {
-    store.createThing("Morning walk", {
-      id: "2026-03-30-08-00-00-000000",
-      tags: [{ name: "note", fields: { entry_type: "text", date: "2026-03-30" } }],
-    });
-    store.createThing("Afternoon meeting", {
-      id: "2026-03-30-14-00-00-000000",
-      tags: [
-        { name: "note", fields: { entry_type: "voice", date: "2026-03-30" } },
-      ],
-    });
-    store.createThing("Yesterday reflection", {
-      id: "2026-03-29-20-00-00-000000",
-      tags: [{ name: "card", fields: { card_type: "reflection", date: "2026-03-29" } }],
-    });
-  });
-
-  it("queries by tag", () => {
-    const notes = store.queryThings({ tags: ["note"] });
-    expect(notes).toHaveLength(2);
-  });
-
-  it("queries by multiple tags (AND)", () => {
-    // Tag one note with an extra tag
-    store.tagThing("2026-03-30-08-00-00-000000", "person", {});
-    const results = store.queryThings({ tags: ["note", "person"] });
-    expect(results).toHaveLength(1);
-  });
-
-  it("queries with field filter", () => {
-    const results = store.queryThings({
-      tags: ["note"],
-      filters: { entry_type: "voice" },
-    });
-    expect(results).toHaveLength(1);
-    expect(results[0].content).toBe("Afternoon meeting");
-  });
-
-  it("queries with date range filter on tag field", () => {
-    const results = store.queryThings({
-      tags: ["note"],
-      filters: { date: "2026-03-30" },
-    });
-    expect(results).toHaveLength(2);
-  });
-
-  it("respects sort and limit", () => {
-    const results = store.queryThings({
-      tags: ["note"],
-      sort: "id:desc",
-      limit: 1,
-    });
-    expect(results).toHaveLength(1);
-    // ID "2026-03-30-14-..." sorts after "2026-03-30-08-..."
-    expect(results[0].content).toBe("Afternoon meeting");
-  });
-});
-
-// ---- Full-Text Search ----
-
-describe("searchThings", () => {
-  beforeEach(() => {
-    store.createThing("Walked up Flagstaff trail with Alice", {
-      tags: [{ name: "note", fields: { entry_type: "text" } }],
-    });
-    store.createThing("Met with Bob about the Horizon project", {
-      tags: [{ name: "note", fields: { entry_type: "text" } }],
-    });
-    store.createThing("Today was a good day for reflection", {
-      tags: [{ name: "card", fields: { card_type: "reflection" } }],
-    });
-  });
-
-  it("searches by content", () => {
-    const results = store.searchThings("Flagstaff");
-    expect(results).toHaveLength(1);
-    expect(results[0].content).toContain("Flagstaff");
-  });
-
-  it("searches with tag filter", () => {
-    const results = store.searchThings("reflection", { tags: ["card"] });
-    expect(results).toHaveLength(1);
-  });
-
-  it("returns empty for no match", () => {
-    const results = store.searchThings("nonexistent-term-xyz");
-    expect(results).toHaveLength(0);
+    store.deleteNote("a");
+    expect(store.getLinks("b")).toHaveLength(0);
   });
 });
 
 // ---- Tags ----
 
 describe("tags", () => {
-  it("creates and retrieves a custom tag", () => {
-    const tag = store.createTag({
-      name: "meeting",
-      displayName: "Meeting",
-      description: "A meeting note",
-      schema: [{ name: "attendees", type: "text" }],
-    });
-    expect(tag.name).toBe("meeting");
-    expect(tag.schema).toHaveLength(1);
-
-    const found = store.getTag("meeting");
-    expect(found!.schema[0].name).toBe("attendees");
+  it("seeds builtin tags", () => {
+    const tags = store.listTags();
+    for (const builtin of BUILTIN_TAGS) {
+      expect(tags.some((t) => t.name === builtin)).toBe(true);
+    }
   });
 
-  it("lists tags with counts", () => {
-    store.createThing("Note 1", { tags: [{ name: "note" }] });
-    store.createThing("Note 2", { tags: [{ name: "note" }] });
-    const allTags = store.listTags();
-    const noteTag = allTags.find((t) => t.name === "note");
-    expect(noteTag!.count).toBe(2);
+  it("tags a note", () => {
+    const note = store.createNote("Test");
+    store.tagNote(note.id, ["daily", "voice"]);
+    const found = store.getNote(note.id);
+    expect(found!.tags).toContain("daily");
+    expect(found!.tags).toContain("voice");
   });
 
-  it("updates a tag", () => {
-    store.updateTag("note", { description: "Updated description" });
-    const tag = store.getTag("note");
-    expect(tag!.description).toBe("Updated description");
+  it("untags a note", () => {
+    const note = store.createNote("Test", { tags: ["daily", "voice"] });
+    store.untagNote(note.id, ["voice"]);
+    const found = store.getNote(note.id);
+    expect(found!.tags).toContain("daily");
+    expect(found!.tags).not.toContain("voice");
   });
 
-  it("tags and untags a thing", () => {
-    const thing = store.createThing("Test");
-    store.tagThing(thing.id, "note", { entry_type: "text" });
-    expect(store.getThingTags(thing.id)).toHaveLength(1);
-
-    store.untagThing(thing.id, "note");
-    expect(store.getThingTags(thing.id)).toHaveLength(0);
-  });
-});
-
-// ---- Tag Validation ----
-
-describe("validateFieldValues", () => {
-  const schema = BUILTIN_TAGS.find((t) => t.name === "note")!.schema;
-
-  it("accepts valid values", () => {
-    const errors = validateFieldValues(schema, { entry_type: "voice", duration_seconds: 120 });
-    expect(errors).toHaveLength(0);
+  it("creates tags automatically", () => {
+    const note = store.createNote("Test");
+    store.tagNote(note.id, ["custom-tag"]);
+    const tags = store.listTags();
+    expect(tags.some((t) => t.name === "custom-tag")).toBe(true);
   });
 
-  it("rejects invalid select value", () => {
-    const errors = validateFieldValues(schema, { entry_type: "invalid" });
-    expect(errors.length).toBeGreaterThan(0);
-    expect(errors[0]).toContain("not in options");
+  it("counts tag usage", () => {
+    store.createNote("A", { tags: ["daily"] });
+    store.createNote("B", { tags: ["daily"] });
+    store.createNote("C", { tags: ["doc"] });
+
+    const tags = store.listTags();
+    const daily = tags.find((t) => t.name === "daily");
+    expect(daily!.count).toBe(2);
   });
 
-  it("rejects wrong type", () => {
-    const errors = validateFieldValues(schema, { duration_seconds: "not a number" });
-    expect(errors.length).toBeGreaterThan(0);
-  });
-
-  it("rejects unknown field", () => {
-    const errors = validateFieldValues(schema, { unknown_field: "value" });
-    expect(errors).toHaveLength(1);
-    expect(errors[0]).toContain("Unknown field");
+  it("tagging is idempotent", () => {
+    const note = store.createNote("Test", { tags: ["daily"] });
+    store.tagNote(note.id, ["daily"]); // duplicate
+    const found = store.getNote(note.id);
+    expect(found!.tags!.filter((t) => t === "daily")).toHaveLength(1);
   });
 });
 
-// ---- Edges ----
+// ---- Query ----
 
-describe("edges", () => {
-  let noteId: string;
-  let personId: string;
-  let projectId: string;
+describe("queryNotes", () => {
+  it("queries by tag", () => {
+    store.createNote("Daily 1", { tags: ["daily"] });
+    store.createNote("Doc 1", { tags: ["doc"] });
 
-  beforeEach(() => {
-    const note = store.createThing("Met with Alice about Horizon", {
-      tags: [{ name: "note" }],
+    const results = store.queryNotes({ tags: ["daily"] });
+    expect(results).toHaveLength(1);
+    expect(results[0].content).toBe("Daily 1");
+  });
+
+  it("queries by multiple tags (AND)", () => {
+    store.createNote("Voice daily", { tags: ["daily", "voice"] });
+    store.createNote("Text daily", { tags: ["daily"] });
+
+    const results = store.queryNotes({ tags: ["daily", "voice"] });
+    expect(results).toHaveLength(1);
+    expect(results[0].content).toBe("Voice daily");
+  });
+
+  it("excludes tags", () => {
+    store.createNote("Active", { tags: ["digest"] });
+    store.createNote("Archived", { tags: ["digest", "archived"] });
+
+    const results = store.queryNotes({ tags: ["digest"], excludeTags: ["archived"] });
+    expect(results).toHaveLength(1);
+    expect(results[0].content).toBe("Active");
+  });
+
+  it("filters by date range", () => {
+    store.createNote("Test");
+    const results = store.queryNotes({
+      dateFrom: new Date(Date.now() - 60000).toISOString(),
+      dateTo: new Date(Date.now() + 60000).toISOString(),
     });
-    noteId = note.id;
-
-    const person = store.createThing("Alice", {
-      id: "alice",
-      tags: [{ name: "person", fields: { role: "engineer" } }],
-    });
-    personId = person.id;
-
-    const project = store.createThing("Horizon", {
-      id: "horizon",
-      tags: [{ name: "project", fields: { status: "active" } }],
-    });
-    projectId = project.id;
+    expect(results.length).toBeGreaterThan(0);
   });
 
-  it("creates an edge", () => {
-    const edge = store.createEdge(noteId, personId, "mentions");
-    expect(edge.sourceId).toBe(noteId);
-    expect(edge.targetId).toBe(personId);
-    expect(edge.relationship).toBe("mentions");
+  it("sorts ascending and descending", () => {
+    store.createNote("First", { id: "first" });
+    store.createNote("Second", { id: "second" });
+
+    const asc = store.queryNotes({ sort: "asc" });
+    expect(asc[0].content).toBe("First");
+
+    const desc = store.queryNotes({ sort: "desc" });
+    expect(desc[0].content).toBe("Second");
   });
 
-  it("is idempotent — duplicate edge is ignored", () => {
-    store.createEdge(noteId, personId, "mentions");
-    store.createEdge(noteId, personId, "mentions"); // no error
-    const edges = store.getEdges(noteId, { direction: "outbound" });
-    const mentions = edges.filter(
-      (e) => e.targetId === personId && e.relationship === "mentions",
-    );
-    expect(mentions).toHaveLength(1);
+  it("limits results", () => {
+    for (let i = 0; i < 5; i++) store.createNote(`Note ${i}`);
+    const results = store.queryNotes({ limit: 3 });
+    expect(results).toHaveLength(3);
+  });
+});
+
+// ---- Search ----
+
+describe("searchNotes", () => {
+  it("finds notes by content", () => {
+    store.createNote("Walked up Flagstaff trail");
+    store.createNote("Meeting about Horizon");
+
+    const results = store.searchNotes("Flagstaff");
+    expect(results).toHaveLength(1);
+    expect(results[0].content).toContain("Flagstaff");
   });
 
-  it("allows multiple relationship types between same things", () => {
-    store.createEdge(noteId, personId, "mentions");
-    store.createEdge(noteId, personId, "assigned-to");
-    const edges = store.getEdges(noteId, { direction: "outbound" });
-    expect(edges).toHaveLength(2);
+  it("filters search by tag", () => {
+    store.createNote("Daily Flagstaff", { tags: ["daily"] });
+    store.createNote("Doc Flagstaff", { tags: ["doc"] });
+
+    const results = store.searchNotes("Flagstaff", { tags: ["daily"] });
+    expect(results).toHaveLength(1);
+    expect(results[0].tags).toContain("daily");
   });
 
-  it("gets edges by direction", () => {
-    store.createEdge(noteId, personId, "mentions");
-    store.createEdge(projectId, personId, "has-collaborator");
+  it("returns empty for no match", () => {
+    store.createNote("Hello world");
+    const results = store.searchNotes("nonexistent");
+    expect(results).toHaveLength(0);
+  });
+});
 
-    const outbound = store.getEdges(noteId, { direction: "outbound" });
+// ---- Links ----
+
+describe("links", () => {
+  it("creates a link", () => {
+    store.createNote("A", { id: "a" });
+    store.createNote("B", { id: "b" });
+
+    const link = store.createLink("a", "b", "mentions");
+    expect(link.sourceId).toBe("a");
+    expect(link.targetId).toBe("b");
+    expect(link.relationship).toBe("mentions");
+  });
+
+  it("deletes a link", () => {
+    store.createNote("A", { id: "a" });
+    store.createNote("B", { id: "b" });
+    store.createLink("a", "b", "mentions");
+    store.deleteLink("a", "b", "mentions");
+
+    const links = store.getLinks("a");
+    expect(links).toHaveLength(0);
+  });
+
+  it("gets outbound links", () => {
+    store.createNote("A", { id: "a" });
+    store.createNote("B", { id: "b" });
+    store.createNote("C", { id: "c" });
+    store.createLink("a", "b", "mentions");
+    store.createLink("c", "a", "quotes");
+
+    const outbound = store.getLinks("a", { direction: "outbound" });
     expect(outbound).toHaveLength(1);
-
-    const inbound = store.getEdges(personId, { direction: "inbound" });
-    expect(inbound).toHaveLength(2);
-
-    const both = store.getEdges(personId, { direction: "both" });
-    expect(both).toHaveLength(2);
+    expect(outbound[0].targetId).toBe("b");
   });
 
-  it("filters edges by relationship", () => {
-    store.createEdge(noteId, personId, "mentions");
-    store.createEdge(noteId, projectId, "mentions");
-    store.createEdge(projectId, personId, "has-collaborator");
+  it("gets inbound links", () => {
+    store.createNote("A", { id: "a" });
+    store.createNote("B", { id: "b" });
+    store.createLink("a", "b", "mentions");
 
-    const mentions = store.getEdges(noteId, {
-      direction: "outbound",
-      relationship: "mentions",
-    });
-    expect(mentions).toHaveLength(2);
+    const inbound = store.getLinks("b", { direction: "inbound" });
+    expect(inbound).toHaveLength(1);
+    expect(inbound[0].sourceId).toBe("a");
   });
 
-  it("deletes an edge", () => {
-    store.createEdge(noteId, personId, "mentions");
-    store.deleteEdge(noteId, personId, "mentions");
-    const edges = store.getEdges(noteId);
-    expect(edges).toHaveLength(0);
+  it("gets all links (both directions)", () => {
+    store.createNote("A", { id: "a" });
+    store.createNote("B", { id: "b" });
+    store.createNote("C", { id: "c" });
+    store.createLink("a", "b", "mentions");
+    store.createLink("c", "a", "quotes");
+
+    const all = store.getLinks("a", { direction: "both" });
+    expect(all).toHaveLength(2);
   });
 
-  it("cascades edge deletion when thing is deleted", () => {
-    store.createEdge(noteId, personId, "mentions");
-    store.deleteThing(noteId);
-    const edges = store.getEdges(personId, { direction: "inbound" });
-    expect(edges).toHaveLength(0);
-  });
-});
-
-// ---- Traversal ----
-
-describe("traverse", () => {
-  beforeEach(() => {
-    // Build a small graph:
-    // note1 --mentions--> Alice --collaborates-on--> Horizon
-    // note1 --mentions--> Horizon
-    store.createThing("Meeting notes", {
-      id: "note1",
-      tags: [{ name: "note" }],
-    });
-    store.createThing("Alice", {
-      id: "alice",
-      tags: [{ name: "person" }],
-    });
-    store.createThing("Horizon", {
-      id: "horizon",
-      tags: [{ name: "project" }],
-    });
-
-    store.createEdge("note1", "alice", "mentions");
-    store.createEdge("note1", "horizon", "mentions");
-    store.createEdge("alice", "horizon", "collaborates-on");
-  });
-
-  it("traverses 1 hop outbound", () => {
-    const results = store.traverse("note1", { direction: "outbound", depth: 1 });
-    expect(results).toHaveLength(2);
-    const ids = results.map((r) => r.id).sort();
-    expect(ids).toEqual(["alice", "horizon"]);
-  });
-
-  it("traverses 2 hops outbound", () => {
-    const results = store.traverse("note1", { direction: "outbound", depth: 2 });
-    // note1 -> alice, horizon (depth 1), alice -> horizon (depth 2, already visited)
-    expect(results).toHaveLength(2);
-  });
-
-  it("traverses with edge filter", () => {
-    const results = store.traverse("note1", {
-      edge: "mentions",
-      direction: "outbound",
-      depth: 1,
-    });
-    expect(results).toHaveLength(2);
-  });
-
-  it("traverses with target tag filter", () => {
-    const results = store.traverse("note1", {
-      direction: "outbound",
-      depth: 1,
-      targetTags: ["person"],
-    });
-    expect(results).toHaveLength(1);
-    expect(results[0].id).toBe("alice");
-  });
-
-  it("traverses inbound", () => {
-    const results = store.traverse("horizon", {
-      direction: "inbound",
-      depth: 1,
-    });
-    const ids = results.map((r) => r.id).sort();
-    expect(ids).toEqual(["alice", "note1"]);
-  });
-
-  it("returns things with tags attached", () => {
-    const results = store.traverse("note1", {
-      direction: "outbound",
-      depth: 1,
-      targetTags: ["person"],
-    });
-    expect(results[0].tags).toBeDefined();
-    expect(results[0].tags!.some((t) => t.tagName === "person")).toBe(true);
+  it("link creation is idempotent", () => {
+    store.createNote("A", { id: "a" });
+    store.createNote("B", { id: "b" });
+    store.createLink("a", "b", "mentions");
+    store.createLink("a", "b", "mentions"); // duplicate
+    const links = store.getLinks("a");
+    expect(links.filter((l) => l.relationship === "mentions")).toHaveLength(1);
   });
 });
 
-// ---- Tool Execution ----
+// ---- Attachments ----
 
-describe("tool execution", () => {
-  beforeEach(() => {
-    store.createThing("Morning walk in the park", {
-      id: "entry-1",
-      tags: [{ name: "note", fields: { entry_type: "text", date: "2026-03-30" } }],
-    });
-    store.createThing("Afternoon coding session", {
-      id: "entry-2",
-      tags: [{ name: "note", fields: { entry_type: "text", date: "2026-03-30" } }],
-    });
+describe("attachments", () => {
+  it("adds and retrieves attachments", () => {
+    const note = store.createNote("Voice memo", { tags: ["daily", "voice"] });
+    const attachment = store.addAttachment(note.id, "2026-03-31/audio.wav", "audio/wav");
+
+    expect(attachment.noteId).toBe(note.id);
+    expect(attachment.mimeType).toBe("audio/wav");
+
+    const attachments = store.getAttachments(note.id);
+    expect(attachments).toHaveLength(1);
+    expect(attachments[0].path).toBe("2026-03-31/audio.wav");
   });
 
-  it("executes read-notes tool", () => {
-    const results = store.executeTool("read-notes", {
-      date: "2026-03-30",
-    }) as Thing[];
-    expect(results).toHaveLength(2);
-  });
+  it("cascade deletes attachments with note", () => {
+    const note = store.createNote("Test");
+    store.addAttachment(note.id, "file.png", "image/png");
+    store.deleteNote(note.id);
 
-  it("executes search-notes tool", () => {
-    const results = store.executeTool("search-notes", {
-      query: "park",
-    }) as Thing[];
-    expect(results).toHaveLength(1);
-    expect(results[0].content).toContain("park");
-  });
-
-  it("executes write-card tool", () => {
-    const result = store.executeTool("write-card", {
-      content: "Today was productive",
-      card_type: "reflection",
-      date: "2026-03-30",
-    }) as Thing;
-    expect(result.content).toBe("Today was productive");
-    expect(result.tags!.some((t) => t.tagName === "card")).toBe(true);
-  });
-
-  it("executes create-thing tool", () => {
-    const result = store.executeTool("create-thing", {
-      content: "Alice",
-      tags: { person: { role: "engineer" } },
-    }) as Thing;
-    expect(result.content).toBe("Alice");
-    expect(result.tags!.some((t) => t.tagName === "person")).toBe(true);
-  });
-
-  it("executes link-things tool", () => {
-    const alice = store.createThing("Alice", { id: "alice", tags: [{ name: "person" }] });
-    const edge = store.executeTool("link-things", {
-      source_id: "entry-1",
-      target_id: "alice",
-      relationship: "mentions",
-    }) as Edge;
-    expect(edge.sourceId).toBe("entry-1");
-    expect(edge.targetId).toBe("alice");
-  });
-
-  it("executes delete-thing tool", () => {
-    const thing = store.createThing("To be deleted", { id: "del-1" });
-    const result = store.executeTool("delete-thing", { thing_id: "del-1" }) as { deleted: boolean };
-    expect(result.deleted).toBe(true);
-    expect(store.getThing("del-1")).toBeNull();
-  });
-
-  it("executes tag-thing tool", () => {
-    store.createThing("Alice", { id: "tag-test-1" });
-    const result = store.executeTool("tag-thing", {
-      thing_id: "tag-test-1",
-      tag_name: "person",
-      fields: { role: "engineer" },
-    }) as { tagged: boolean };
-    expect(result.tagged).toBe(true);
-    const tags = store.getThingTags("tag-test-1");
-    expect(tags.some((t) => t.tagName === "person")).toBe(true);
-  });
-
-  it("executes untag-thing tool", () => {
-    store.createThing("Bob", { id: "untag-test-1", tags: [{ name: "person" }] });
-    const result = store.executeTool("untag-thing", {
-      thing_id: "untag-test-1",
-      tag_name: "person",
-    }) as { untagged: boolean };
-    expect(result.untagged).toBe(true);
-    const tags = store.getThingTags("untag-test-1");
-    expect(tags.some((t) => t.tagName === "person")).toBe(false);
-  });
-
-  it("executes get-related tool", () => {
-    store.createThing("Alice", { id: "alice", tags: [{ name: "person" }] });
-    store.createEdge("entry-1", "alice", "mentions");
-    const edges = store.executeTool("get-related", {
-      thing_id: "entry-1",
-      direction: "outbound",
-    }) as Edge[];
-    expect(edges).toHaveLength(1);
-    expect(edges[0].relationship).toBe("mentions");
-  });
-
-  it("validates required parameters", () => {
-    // search-notes requires "query"
-    expect(() => store.executeTool("search-notes", {})).toThrow("requires parameter 'query'");
-    // Should succeed with required param
-    const result = store.executeTool("search-notes", { query: "test" });
-    expect(result).toBeDefined();
-  });
-
-  it("validates parameter types", () => {
-    // search-notes query must be string
-    expect(() => store.executeTool("search-notes", { query: 123 })).toThrow("must be string");
-    // read-notes limit must be number
-    expect(() => store.executeTool("read-notes", { limit: "abc" })).toThrow("must be number");
-  });
-
-  it("allows optional parameters to be omitted", () => {
-    // read-notes has no required params
-    const result = store.executeTool("read-notes", {});
-    expect(result).toBeDefined();
-  });
-
-  it("throws for disabled tool", () => {
-    // Disable a tool
-    store.db
-      .prepare("UPDATE tools SET enabled = 'false' WHERE name = ?")
-      .run("read-notes");
-    expect(() => store.executeTool("read-notes", {})).toThrow("disabled");
-  });
-
-  it("throws for unknown tool", () => {
-    expect(() => store.executeTool("nonexistent", {})).toThrow("not found");
+    const attachments = store.getAttachments(note.id);
+    expect(attachments).toHaveLength(0);
   });
 });
 
-// ---- MCP Generation ----
+// ---- MCP Tools ----
 
-describe("MCP generation", () => {
-  it("generates MCP tools from database", async () => {
-    const { generateMcpTools } = await import("./mcp.js");
-    const mcpTools = generateMcpTools(store.db);
-    expect(mcpTools.length).toBeGreaterThan(0);
+describe("MCP tools", () => {
+  it("generates all expected tools", () => {
+    const tools = generateMcpTools(db);
+    const names = tools.map((t) => t.name);
 
-    const readNotes = mcpTools.find((t) => t.name === "read-notes");
-    expect(readNotes).toBeDefined();
-    expect(readNotes!.description).toContain("journal entries");
-    expect(readNotes!.inputSchema).toBeDefined();
-    expect(typeof readNotes!.execute).toBe("function");
+    expect(names).toContain("create-note");
+    expect(names).toContain("update-note");
+    expect(names).toContain("delete-note");
+    expect(names).toContain("read-notes");
+    expect(names).toContain("search-notes");
+    expect(names).toContain("tag-note");
+    expect(names).toContain("untag-note");
+    expect(names).toContain("create-link");
+    expect(names).toContain("delete-link");
+    expect(names).toContain("get-links");
+    expect(names).toContain("list-tags");
+    expect(tools).toHaveLength(11);
   });
 
-  it("MCP tool execute works end-to-end", async () => {
-    store.createThing("Test note", {
-      tags: [{ name: "note", fields: { date: "2026-03-30" } }],
-    });
+  it("create-note tool works", () => {
+    const tools = generateMcpTools(db);
+    const createNote = tools.find((t) => t.name === "create-note")!;
+    const result = createNote.execute({ content: "Hello", tags: ["daily"] }) as any;
+    expect(result.content).toBe("Hello");
+    expect(result.tags).toContain("daily");
+  });
 
-    const { generateMcpTools } = await import("./mcp.js");
-    const mcpTools = generateMcpTools(store.db);
-    const readNotes = mcpTools.find((t) => t.name === "read-notes")!;
-    const results = readNotes.execute({ date: "2026-03-30" }) as Thing[];
-    expect(results).toHaveLength(1);
+  it("read-notes tool works", () => {
+    store.createNote("Test", { tags: ["daily"] });
+    const tools = generateMcpTools(db);
+    const readNotes = tools.find((t) => t.name === "read-notes")!;
+    const result = readNotes.execute({ tags: ["daily"] }) as any[];
+    expect(result).toHaveLength(1);
+  });
+
+  it("search-notes tool works", () => {
+    store.createNote("Flagstaff trail");
+    const tools = generateMcpTools(db);
+    const searchNotes = tools.find((t) => t.name === "search-notes")!;
+    const result = searchNotes.execute({ query: "Flagstaff" }) as any[];
+    expect(result).toHaveLength(1);
+  });
+
+  it("tag/untag tools work", () => {
+    const note = store.createNote("Test");
+    const tools = generateMcpTools(db);
+
+    const tagTool = tools.find((t) => t.name === "tag-note")!;
+    tagTool.execute({ id: note.id, tags: ["pinned"] });
+    expect(store.getNote(note.id)!.tags).toContain("pinned");
+
+    const untagTool = tools.find((t) => t.name === "untag-note")!;
+    untagTool.execute({ id: note.id, tags: ["pinned"] });
+    expect(store.getNote(note.id)!.tags).not.toContain("pinned");
+  });
+
+  it("link tools work", () => {
+    store.createNote("A", { id: "a" });
+    store.createNote("B", { id: "b" });
+    const tools = generateMcpTools(db);
+
+    const createLink = tools.find((t) => t.name === "create-link")!;
+    createLink.execute({ source_id: "a", target_id: "b", relationship: "mentions" });
+
+    const getLinks = tools.find((t) => t.name === "get-links")!;
+    const links = getLinks.execute({ id: "a" }) as any[];
+    expect(links).toHaveLength(1);
+
+    const deleteLink = tools.find((t) => t.name === "delete-link")!;
+    deleteLink.execute({ source_id: "a", target_id: "b", relationship: "mentions" });
+    expect((getLinks.execute({ id: "a" }) as any[]).length).toBe(0);
   });
 });

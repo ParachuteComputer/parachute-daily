@@ -13,34 +13,9 @@ export function searchRoutes(store: SqliteStore): Hono {
     const tags = tag ? tag.split(",") : undefined;
     const limit = c.req.query("limit");
 
-    const results = store.searchThings(query, {
+    const results = store.searchNotes(query, {
       tags,
       limit: limit ? parseInt(limit, 10) : undefined,
-    });
-    return c.json(results);
-  });
-
-  // POST /traverse — Graph traversal
-  app.post("/traverse", async (c) => {
-    const body = await c.req.json<{
-      thing_id: string;
-      edge?: string;
-      direction?: "outbound" | "inbound" | "both";
-      depth?: number;
-      target_tags?: string[];
-      limit?: number;
-    }>();
-
-    if (!body.thing_id) {
-      return c.json({ error: "thing_id is required" }, 400);
-    }
-
-    const results = store.traverse(body.thing_id, {
-      edge: body.edge,
-      direction: body.direction ?? "outbound",
-      depth: body.depth ?? 1,
-      targetTags: body.target_tags,
-      limit: body.limit,
     });
     return c.json(results);
   });
