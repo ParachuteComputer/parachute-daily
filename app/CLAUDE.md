@@ -86,6 +86,8 @@ Everything is a **Note**, differentiated by flat **Tags**:
 #voice      — note was transcribed from voice
 ```
 
+Tags use optional `/` hierarchy: `#doc/meeting`, `#doc/draft`. The Docs tab queries `LIKE 'doc%'` so sub-tags surface automatically. A note can have multiple tags (e.g., `#daily` + `#doc/meeting` appears in both tabs).
+
 ### Server API
 
 The `GraphApiService` targets these endpoints on the Hono server (default port 1940):
