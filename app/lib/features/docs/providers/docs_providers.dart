@@ -1,5 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:parachute/core/models/thing.dart';
+import 'package:parachute/core/providers/feature_flags_provider.dart'
+    show aiServerUrlProvider;
 import 'package:parachute/features/daily/journal/providers/journal_providers.dart';
 
 /// Trigger to refresh the docs list.
@@ -9,6 +11,8 @@ final docsRefreshTriggerProvider = StateProvider<int>((ref) => 0);
 /// Returns empty list on error or no results.
 final docsNotesProvider = FutureProvider.autoDispose<List<Note>>((ref) async {
   ref.watch(docsRefreshTriggerProvider);
+  // Ensure the server URL has resolved before querying.
+  await ref.watch(aiServerUrlProvider.future);
   final api = ref.watch(graphApiServiceProvider);
   final notes = await api.queryNotes(tag: 'doc', sort: 'desc');
   return notes ?? [];
@@ -22,6 +26,8 @@ final docsSearchQueryProvider = StateProvider<String>((ref) => '');
 final docsSearchProvider = FutureProvider.autoDispose<List<Note>?>((ref) async {
   final query = ref.watch(docsSearchQueryProvider);
   if (query.trim().isEmpty) return null;
+  // Ensure the server URL has resolved before querying.
+  await ref.watch(aiServerUrlProvider.future);
   final api = ref.watch(graphApiServiceProvider);
   return api.searchNotes(query, tag: 'doc');
 });

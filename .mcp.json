@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "parachute-daily": {
-      "transport": "http",
-      "url": "http://localhost:1940/mcp"
-    }
-  }
-}

@@ -84,10 +84,11 @@ export function generateMcpTools(db: Database.Database): McpToolDef[] {
         properties: {
           tags: { type: "array", items: { type: "string" }, description: "Filter by tags (AND)" },
           exclude_tags: { type: "array", items: { type: "string" }, description: "Exclude notes with these tags" },
-          date_from: { type: "string", description: "Start date (ISO)" },
-          date_to: { type: "string", description: "End date (ISO)" },
+          date_from: { type: "string", description: "Start date (ISO, inclusive)" },
+          date_to: { type: "string", description: "End date (ISO, exclusive — use the day after your range)" },
           sort: { type: "string", enum: ["asc", "desc"], description: "Sort by created_at" },
-          limit: { type: "number", description: "Max results", default: 50 },
+          limit: { type: "number", description: "Max results (default 100)" },
+          offset: { type: "number", description: "Skip this many results (for pagination, default 0)" },
         },
       },
       execute: (params) => notes.queryNotes(db, {
@@ -97,6 +98,7 @@ export function generateMcpTools(db: Database.Database): McpToolDef[] {
         dateTo: params.date_to as string | undefined,
         sort: params.sort as "asc" | "desc" | undefined,
         limit: params.limit as number | undefined,
+        offset: params.offset as number | undefined,
       }),
     },
     {

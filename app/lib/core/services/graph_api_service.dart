@@ -188,7 +188,7 @@ class GraphApiService {
   /// Upload an audio file, returns the relative storage path.
   Future<String?> uploadAudio(Uint8List data, String filename) async {
     try {
-      final uri = Uri.parse('$baseUrl/storage/upload');
+      final uri = Uri.parse('$baseUrl/api/storage/upload');
       final request = http.MultipartRequest('POST', uri);
       _addAuthHeaders(request.headers);
       request.files.add(http.MultipartFile.fromBytes(
@@ -217,7 +217,7 @@ class GraphApiService {
   /// Check server health.
   Future<bool> isHealthy() async {
     try {
-      final uri = Uri.parse('$baseUrl/health');
+      final uri = Uri.parse('$baseUrl/api/health');
       final response = await _client.get(uri, headers: _headers()).timeout(
         const Duration(seconds: 5),
       );
@@ -234,7 +234,7 @@ class GraphApiService {
 
   Future<dynamic> _get(String path, Map<String, String> params) async {
     try {
-      final uri = Uri.parse('$baseUrl$path').replace(queryParameters: params.isNotEmpty ? params : null);
+      final uri = Uri.parse('$baseUrl/api$path').replace(queryParameters: params.isNotEmpty ? params : null);
       final response = await _client.get(uri, headers: _headers()).timeout(_timeout);
       _notifyReachable(true);
       if (response.statusCode == 200) return jsonDecode(response.body);
@@ -250,7 +250,7 @@ class GraphApiService {
 
   Future<dynamic> _post(String path, Map<String, dynamic> body) async {
     try {
-      final uri = Uri.parse('$baseUrl$path');
+      final uri = Uri.parse('$baseUrl/api$path');
       final response = await _client.post(
         uri,
         headers: _headers(),
@@ -271,7 +271,7 @@ class GraphApiService {
 
   Future<dynamic> _patch(String path, Map<String, dynamic> body) async {
     try {
-      final uri = Uri.parse('$baseUrl$path');
+      final uri = Uri.parse('$baseUrl/api$path');
       final response = await _client.patch(
         uri,
         headers: _headers(),
@@ -290,7 +290,7 @@ class GraphApiService {
 
   Future<dynamic> _delete(String path) async {
     try {
-      final uri = Uri.parse('$baseUrl$path');
+      final uri = Uri.parse('$baseUrl/api$path');
       final response = await _client.delete(uri, headers: _headers()).timeout(_timeout);
       _notifyReachable(true);
       if (response.statusCode == 200) return jsonDecode(response.body);
@@ -305,7 +305,7 @@ class GraphApiService {
 
   Future<dynamic> _deleteWithBody(String path, Map<String, dynamic> body) async {
     try {
-      final uri = Uri.parse('$baseUrl$path');
+      final uri = Uri.parse('$baseUrl/api$path');
       final request = http.Request('DELETE', uri);
       request.headers.addAll(_headers());
       request.body = jsonEncode(body);
