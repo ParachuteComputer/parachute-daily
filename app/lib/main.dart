@@ -21,6 +21,8 @@ import 'core/widgets/model_download_banner.dart';
 import 'features/daily/home/screens/home_screen.dart';
 import 'features/daily/recorder/providers/omi_providers.dart';
 import 'features/daily/journal/providers/journal_providers.dart';
+import 'features/digest/screens/digest_screen.dart';
+import 'features/docs/screens/docs_screen.dart';
 import 'features/settings/screens/settings_screen.dart';
 import 'features/onboarding/screens/onboarding_screen.dart';
 
@@ -248,9 +250,9 @@ class _DailyShellState extends ConsumerState<_DailyShell> with WidgetsBindingObs
             child: IndexedStack(
               index: _currentTab,
               children: const [
-                _DigestTab(),
+                DigestScreen(),
                 HomeScreen(),
-                _DocsTab(),
+                DocsScreen(),
               ],
             ),
           ),
@@ -278,54 +280,3 @@ class _TabDef {
   const _TabDef(this.label, this.icon, this.selectedIcon);
 }
 
-/// Digest tab — AI-surfaced content (#digest, not #archived)
-class _DigestTab extends StatelessWidget {
-  const _DigestTab();
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.auto_awesome, size: 48, color: Theme.of(context).colorScheme.outline),
-          const SizedBox(height: 16),
-          Text('Digest', style: Theme.of(context).textTheme.headlineSmall),
-          const SizedBox(height: 8),
-          Text(
-            'AI-surfaced content will appear here',
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: Theme.of(context).colorScheme.outline,
-                ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// Docs tab — persistent notes (#doc), searchable
-class _DocsTab extends StatelessWidget {
-  const _DocsTab();
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.description, size: 48, color: Theme.of(context).colorScheme.outline),
-          const SizedBox(height: 16),
-          Text('Docs', style: Theme.of(context).textTheme.headlineSmall),
-          const SizedBox(height: 8),
-          Text(
-            'Persistent notes and documents will live here',
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: Theme.of(context).colorScheme.outline,
-                ),
-          ),
-        ],
-      ),
-    );
-  }
-}
