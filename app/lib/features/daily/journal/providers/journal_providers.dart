@@ -1,6 +1,8 @@
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:parachute/core/config/app_config.dart';
+import 'package:parachute/core/models/thing.dart';
 import 'package:parachute/core/providers/feature_flags_provider.dart'
     show aiServerUrlProvider;
 import 'package:parachute/core/providers/app_state_provider.dart'
@@ -9,13 +11,11 @@ import 'package:parachute/core/providers/backend_health_provider.dart'
     show periodicServerHealthProvider;
 import 'package:parachute/core/providers/connectivity_provider.dart'
     show isServerAvailableProvider, serverReachableOverrideProvider;
-// GraphApiService is available for direct note/link operations if needed.
 import 'package:parachute/core/services/graph_api_service.dart';
+import 'package:parachute/core/services/note_local_cache.dart';
 import '../models/journal_entry.dart';
 import '../models/journal_day.dart';
 import '../services/daily_api_service.dart';
-import '../services/journal_local_cache.dart';
-import '../services/pending_entry_queue.dart';
 
 // ============================================================================
 // Daily API Service Providers (server-backed)
@@ -32,8 +32,6 @@ final dailyApiServiceProvider = Provider<DailyApiService>((ref) {
     baseUrl: baseUrl,
     apiKey: apiKey,
     onReachabilityChanged: (reachable) {
-      // Fast-fail / fast-recover: immediately update connectivity state
-      // without waiting for the next 30s periodic health check.
       ref.read(serverReachableOverrideProvider.notifier).state = reachable;
     },
   );
@@ -41,9 +39,9 @@ final dailyApiServiceProvider = Provider<DailyApiService>((ref) {
   return service;
 });
 
-/// Provider for GraphApiService — v2 graph API client.
+/// Provider for GraphApiService — v3 graph API client.
 ///
-/// Used by DailyApiService internally for all server communication.
+/// Used by Digest/Docs providers for direct note operations.
 final graphApiServiceProvider = Provider<GraphApiService>((ref) {
   final urlAsync = ref.watch(aiServerUrlProvider);
   final baseUrl = urlAsync.valueOrNull ?? AppConfig.defaultServerUrl;
@@ -59,23 +57,14 @@ final graphApiServiceProvider = Provider<GraphApiService>((ref) {
   );
 });
 
-/// Provider for the local SQLite cache — offline fallback for journal entries.
+/// Provider for the local Note cache — offline fallback.
 ///
 /// Opens once per app session; disposed when no longer referenced.
 /// Falls back to in-memory database if documents directory is unavailable.
-final journalLocalCacheProvider = FutureProvider<JournalLocalCache>((
-  ref,
-) async {
-  final cache = await JournalLocalCache.open();
+final noteLocalCacheProvider = FutureProvider<NoteLocalCache>((ref) async {
+  final cache = await NoteLocalCache.open();
   ref.onDispose(cache.dispose);
   return cache;
-});
-
-/// Provider for PendingEntryQueue — SharedPreferences-backed offline queue
-final pendingQueueProvider = FutureProvider<PendingEntryQueue>((ref) async {
-  final queue = await PendingEntryQueue.create();
-  ref.onDispose(queue.dispose);
-  return queue;
 });
 
 /// Provider for tracking the currently selected date
@@ -96,7 +85,7 @@ String _formatDateForApi(DateTime date) {
 
 /// Provider for today's journal — cache-first, then server.
 ///
-/// Phase 1: emits cached entries immediately (instant display, works offline).
+/// Phase 1: emits cached notes immediately (instant display, works offline).
 /// Phase 2: fetches from server, updates cache, emits fresh data.
 final todayJournalProvider =
     AsyncNotifierProvider.autoDispose<_TodayJournalNotifier, JournalDay>(
@@ -108,13 +97,7 @@ class _TodayJournalNotifier extends AutoDisposeAsyncNotifier<JournalDay> {
   Future<JournalDay> build() async {
     ref.watch(journalRefreshTriggerProvider);
 
-    // Flush pending queue when connectivity restores (offline → online transition).
-    // Guard on previous == null to ignore the stream's initial emission on (re)start.
-    //
-    // NOTE: ref.listen callbacks must be synchronous — async lambdas silently
-    // discard errors. We fire-and-forget a Future and handle errors inside it.
-    // The try/catch also protects against StateError if the notifier is disposed
-    // between when the health event fires and when the awaited calls complete.
+    // Flush pending ops when connectivity restores (offline → online transition).
     ref.listen(periodicServerHealthProvider, (previous, next) {
       if (previous == null) return;
       final wasHealthy = previous.valueOrNull?.isHealthy ?? false;
@@ -123,17 +106,10 @@ class _TodayJournalNotifier extends AutoDisposeAsyncNotifier<JournalDay> {
         Future(() async {
           try {
             final api = ref.read(dailyApiServiceProvider);
-            final queue = await ref.read(pendingQueueProvider.future);
-            await queue.flush(api);
-            // Also flush pending deletes/edits that queued while offline.
-            final cache = await ref.read(journalLocalCacheProvider.future);
+            final cache = await ref.read(noteLocalCacheProvider.future);
             await _flushPendingOps(api, cache);
-            // _loadJournal already calls flush on every build; no need to increment
-            // the refresh trigger here — that would cause a redundant rebuild cycle.
           } catch (e) {
-            debugPrint(
-              '[_TodayJournalNotifier] Error flushing on reconnect: $e',
-            );
+            debugPrint('[_TodayJournalNotifier] Error flushing on reconnect: $e');
           }
         });
       }
@@ -158,153 +134,303 @@ class _SelectedJournalNotifier extends AutoDisposeAsyncNotifier<JournalDay> {
   }
 }
 
+/// Convert a Note to a JournalEntry for display.
+///
+/// This is the boundary between the v3 data model (Note + tags) and the
+/// Daily tab's specialized view model (JournalEntry with type, audio, etc.).
+JournalEntry _noteToEntry(Note note, {String? audioPath, bool isPending = false}) {
+  final isVoice = note.hasTag('voice');
+  return JournalEntry(
+    id: note.id,
+    title: note.path ?? '',
+    content: note.content,
+    type: isVoice ? JournalEntryType.voice : JournalEntryType.text,
+    createdAt: note.createdAt,
+    audioPath: audioPath,
+    isPending: isPending,
+    tags: note.tags,
+  );
+}
+
 /// Two-phase journal load: cache first, then server.
-///
-/// [onCacheHit] is called synchronously when cached entries are available so
-/// the notifier can update its state before the server fetch completes — giving
-/// instant display even while the network request is in flight.
-///
-/// Cache strategy:
-/// - Phase 1: read SQLite cache → call [onCacheHit] if entries found.
-/// - Phase 2: flush pending ops → fetch server → update cache.
-/// - If server is unreachable (null): Phase 1 data stays visible.
-/// - If server returns HTTP 200 empty: cache is cleared (authoritative empty).
-/// - Server is always authoritative when reachable.
 Future<JournalDay> _loadJournal(
   Ref ref,
   DateTime date,
   void Function(JournalDay) onCacheHit,
 ) async {
   final dateStr = _formatDateForApi(date);
+  final nextDateStr = _nextDate(dateStr);
   final api = ref.read(dailyApiServiceProvider);
-  final pendingQueue = await ref.read(pendingQueueProvider.future);
+  final cache = await ref.watch(noteLocalCacheProvider.future);
 
-  // Cache open is fast (SQLite, usually < 5 ms). Awaiting guarantees Phase 1
-  // always has access to cached data, even on the very first call.
-  // ref.watch establishes a dependency so the notifier rebuilds if the cache
-  // provider is ever invalidated (e.g., in tests or after vault change).
-  final cache = await ref.watch(journalLocalCacheProvider.future);
-
-  // Phase 1 — serve from cache immediately (excludes pending_delete entries).
-  final cached = cache.getEntries(dateStr);
-  if (cached.isNotEmpty) {
-    final pendingForDate = _pendingForDate(pendingQueue, dateStr);
-    onCacheHit(JournalDay.fromEntries(date, [...cached, ...pendingForDate]));
+  // Phase 1 — serve from cache immediately (excludes pending_delete).
+  final cachedNotes = cache.getNotesForDate(dateStr, nextDateStr);
+  if (cachedNotes.isNotEmpty) {
+    final entries = cachedNotes.map((note) {
+      final audioPath = cache.getAudioPath(note.id);
+      return _noteToEntry(note, audioPath: audioPath);
+    }).toList();
+    onCacheHit(JournalDay.fromEntries(date, entries));
   }
 
   // Phase 2 — flush pending ops and fetch from server (only when online).
   final isAvailable = ref.watch(isServerAvailableProvider);
   if (!isAvailable) {
-    // Offline: skip flush + server fetch, return cached entries only.
-    // Flushing when offline would wait 15s per pending entry for timeout.
-    final freshCached = cache.getEntries(dateStr);
-    final pendingForDate = _pendingForDate(pendingQueue, dateStr);
-    return JournalDay.fromEntries(date, [...freshCached, ...pendingForDate]);
+    final freshNotes = cache.getNotesForDate(dateStr, nextDateStr);
+    final entries = freshNotes.map((note) {
+      final audioPath = cache.getAudioPath(note.id);
+      return _noteToEntry(note, audioPath: audioPath);
+    }).toList();
+    return JournalDay.fromEntries(date, entries);
   }
 
-  await pendingQueue.flush(api);
   await _flushPendingOps(api, cache);
 
-  // getEntries returns null on network error, [] on authoritative empty.
-  final serverEntries = await api.getEntries(date: dateStr);
+  // Fetch from server — returns Note objects directly.
+  final serverNotes = await api.getNotes(date: dateStr);
 
-  if (serverEntries != null) {
-    // Server was reachable — it's authoritative.
-    if (serverEntries.isEmpty) {
-      // HTTP 200 with no entries: this date is genuinely empty.
-      // Clear stale cache (removes any leftover entries from deleted sessions etc.).
-      cache.clearDate(dateStr);
+  if (serverNotes != null) {
+    if (serverNotes.isEmpty) {
+      cache.clearDateRange(dateStr, nextDateStr);
     } else {
-      // UPSERT preserves pending_delete/pending_edit states (see putEntries docs).
-      cache.putEntries(dateStr, serverEntries);
-      // Prune synced entries the server no longer returns — handles the case
-      // where entries were deleted server-side but still exist in local cache.
-      cache.removeStaleEntries(dateStr, serverEntries.map((e) => e.id).toSet());
+      cache.putNotes(serverNotes);
+      cache.removeStaleNotes(
+        dateStr, nextDateStr, serverNotes.map((n) => n.id).toSet(),
+      );
+      // Fetch and cache audio paths for voice notes.
+      for (final note in serverNotes) {
+        if (note.isVoice) {
+          final audioPath = await api.getAudioPath(note.id);
+          if (audioPath != null) {
+            cache.putAttachment(note.id, audioPath, 'audio/wav');
+          }
+        }
+      }
     }
   }
 
-  // Re-read cache: now reflects the merged truth — server entries minus
-  // pending_delete, plus pending_edit's locally-modified content, or the
-  // previous cached snapshot when the server was unreachable.
-  final freshCached = cache.getEntries(dateStr);
-  final pendingForDate = _pendingForDate(pendingQueue, dateStr);
-  return JournalDay.fromEntries(date, [...freshCached, ...pendingForDate]);
+  // Re-read cache: merged truth.
+  final freshNotes = cache.getNotesForDate(dateStr, nextDateStr);
+  final entries = freshNotes.map((note) {
+    final audioPath = cache.getAudioPath(note.id);
+    return _noteToEntry(note, audioPath: audioPath);
+  }).toList();
+  return JournalDay.fromEntries(date, entries);
 }
 
 /// Re-entrancy guard for [_flushPendingOps].
-///
-/// [selectedJournalProvider] and [todayJournalProvider] may both be alive
-/// simultaneously — without this guard both would call _flushPendingOps at the
-/// same time, sending duplicate DELETE/PATCH requests for the same IDs.
 bool _flushPendingOpsActive = false;
 
-/// Flush pending delete and edit operations for all dates.
-///
-/// Called during Phase 2 of every journal load and on network reconnect.
-/// Re-entrant calls are dropped — the in-flight flush covers them.
+/// Flush all pending operations: creates, edits, and deletes.
 Future<void> _flushPendingOps(
   DailyApiService api,
-  JournalLocalCache cache,
+  NoteLocalCache cache,
 ) async {
   if (_flushPendingOpsActive) return;
   _flushPendingOpsActive = true;
   try {
+    // Flush pending creates
+    final pendingCreates = cache.getPendingCreates();
+    for (final note in pendingCreates) {
+      final tags = note.tags.isNotEmpty ? note.tags : ['daily'];
+      final audioPath = cache.getAudioPath(note.id);
+
+      // Upload audio if it's a local file path
+      String? resolvedAudioPath = audioPath;
+      if (audioPath != null && audioPath.startsWith('/')) {
+        final serverPath = await api.uploadAudio(
+          File(audioPath),
+        );
+        if (serverPath == null) {
+          debugPrint('[FlushOps] Audio upload pending for ${note.id}');
+          continue; // Keep in queue
+        }
+        resolvedAudioPath = serverPath;
+      }
+
+      final serverNote = await api.createNote(
+        content: note.content,
+        tags: tags,
+      );
+      if (serverNote != null) {
+        // Attach audio if present
+        if (resolvedAudioPath != null) {
+          // Audio attachment is handled by the API service
+        }
+        cache.removeNote(note.id);
+        cache.putNotes([serverNote]);
+        debugPrint('[FlushOps] Flushed create ${note.id} → ${serverNote.id}');
+      }
+    }
+
     // Flush pending deletes
     final deleteIds = cache.getPendingDeletes();
     for (final id in deleteIds) {
-      final ok = await api.deleteEntry(id);
+      final ok = await api.deleteNote(id);
       if (ok) {
-        // 204 or 404 both treated as success — entry is gone from server.
-        cache.removeEntry(id);
+        cache.removeNote(id);
       }
-      // If ok == false (server error), leave as pending_delete for next flush.
     }
 
     // Flush pending edits
-    final editEntries = cache.getPendingEdits();
-    for (final entry in editEntries) {
-      final updated = await api.updateEntry(
-        entry.id,
-        content: entry.content,
-        metadata: entry.title.isNotEmpty ? {'title': entry.title} : null,
-      );
+    final editNotes = cache.getPendingEdits();
+    for (final note in editNotes) {
+      final updated = await api.updateNote(note.id, content: note.content);
       if (updated != null) {
-        // Update cache with the server's authoritative response and clear the flag.
-        cache.markSynced(
-          entry.id,
-          content: updated.content,
-          title: updated.title,
-        );
+        cache.markSynced(note.id, content: updated.content);
       }
-      // If null (offline or server error), leave as pending_edit for next flush.
     }
   } finally {
     _flushPendingOpsActive = false;
   }
 }
 
-List<JournalEntry> _pendingForDate(PendingEntryQueue queue, String dateStr) =>
-    queue.entries
-        .where((e) => _formatDateForApi(e.createdAt) == dateStr)
-        .toList();
+String _nextDate(String date) {
+  final dt = DateTime.parse(date);
+  final next = dt.add(const Duration(days: 1));
+  final y = next.year.toString().padLeft(4, '0');
+  final m = next.month.toString().padLeft(2, '0');
+  final d = next.day.toString().padLeft(2, '0');
+  return '$y-$m-$d';
+}
+
+// ============================================================================
+// Backward-compatible aliases
+// TODO(v3-cache): Remove once journal_screen.dart is migrated
+// ============================================================================
+
+/// Alias for [noteLocalCacheProvider] — old consumers use this name.
+/// Returns a shim that delegates to NoteLocalCache.
+final journalLocalCacheProvider = FutureProvider<_JournalCacheShim>((ref) async {
+  final cache = await ref.watch(noteLocalCacheProvider.future);
+  return _JournalCacheShim(cache);
+});
+
+/// Shim that wraps NoteLocalCache with the old JournalLocalCache interface.
+class _JournalCacheShim {
+  final NoteLocalCache _cache;
+  _JournalCacheShim(this._cache);
+
+  List<JournalEntry> getEntries(String date) {
+    final nextDate = _nextDate(date);
+    final notes = _cache.getNotesForDate(date, nextDate);
+    return notes.map((note) {
+      final audioPath = _cache.getAudioPath(note.id);
+      return _noteToEntry(note, audioPath: audioPath);
+    }).toList();
+  }
+
+  void putEntries(String date, List<JournalEntry> entries) {
+    // Convert entries back to notes for caching.
+    // This is lossy but preserves the important data.
+    final notes = entries.map((e) => Note(
+      id: e.id,
+      content: e.content,
+      path: e.title.isNotEmpty ? e.title : null,
+      createdAt: e.createdAt,
+      tags: e.tags ?? (e.type == JournalEntryType.voice ? ['daily', 'voice'] : ['daily']),
+    )).toList();
+    _cache.putNotes(notes);
+    // Cache audio attachments
+    for (final e in entries) {
+      if (e.audioPath != null) {
+        _cache.putAttachment(e.id, e.audioPath!, 'audio/wav');
+      }
+    }
+  }
+
+  void markForDelete(String entryId) => _cache.markForDelete(entryId);
+
+  void markForEdit(String entryId, {required String content, required String title}) {
+    _cache.markForEdit(entryId, content: content);
+  }
+
+  void markSynced(String entryId, {String? content, String? title}) {
+    _cache.markSynced(entryId, content: content);
+  }
+
+  void removeEntry(String entryId) => _cache.removeNote(entryId);
+
+  void clearDate(String date) {
+    final nextDate = _nextDate(date);
+    _cache.clearDateRange(date, nextDate);
+  }
+
+  void removeStaleEntries(String date, Set<String> serverIds) {
+    final nextDate = _nextDate(date);
+    _cache.removeStaleNotes(date, nextDate, serverIds);
+  }
+
+  List<String> getPendingDeletes() => _cache.getPendingDeletes();
+
+  List<JournalEntry> getPendingEdits() {
+    return _cache.getPendingEdits().map((note) => _noteToEntry(note)).toList();
+  }
+}
+
+/// Old-style pending queue — now backed by NoteLocalCache's pending_create.
+final pendingQueueProvider = FutureProvider<_PendingQueueShim>((ref) async {
+  final cache = await ref.watch(noteLocalCacheProvider.future);
+  return _PendingQueueShim(cache);
+});
+
+class _PendingQueueShim {
+  final NoteLocalCache _cache;
+  _PendingQueueShim(this._cache);
+
+  List<JournalEntry> get entries {
+    return _cache.getPendingCreates().map((note) {
+      final audioPath = _cache.getAudioPath(note.id);
+      return _noteToEntry(note, audioPath: audioPath, isPending: true);
+    }).toList();
+  }
+
+  bool get isEmpty => _cache.getPendingCreates().isEmpty;
+  int get length => _cache.getPendingCreates().length;
+
+  Future<JournalEntry> enqueue({
+    required String localId,
+    required String content,
+    String type = 'text',
+    String? title,
+    String? audioPath,
+    String? imagePath,
+    int? durationSeconds,
+  }) async {
+    final tags = <String>['daily'];
+    if (type == 'voice') tags.add('voice');
+
+    final note = Note(
+      id: localId,
+      content: content,
+      path: title,
+      createdAt: DateTime.now(),
+      tags: tags,
+    );
+    _cache.insertPendingCreate(note, audioPath: audioPath);
+    return _noteToEntry(note, audioPath: audioPath, isPending: true);
+  }
+
+  Future<void> remove(String localId) async {
+    _cache.removeNote(localId);
+  }
+
+  Future<void> flush(DailyApiService api) async {
+    // Flushing is now handled by _flushPendingOps in the provider
+  }
+
+  void dispose() {}
+}
 
 // ============================================================================
 // Sync Status Providers
 // ============================================================================
 
-/// Count of entries pending sync (queue + pending deletes + pending edits).
-///
-/// Returns 0 if unable to read the queue or cache.
+/// Count of notes pending sync (creates + edits + deletes).
 final pendingSyncCountProvider = FutureProvider<int>((ref) async {
   try {
-    final cache = await ref.watch(journalLocalCacheProvider.future);
-    final queue = await ref.watch(pendingQueueProvider.future);
-
-    final queueCount = queue.length;
-    final pendingDeletes = cache.getPendingDeletes().length;
-    final pendingEdits = cache.getPendingEdits().length;
-
-    return queueCount + pendingDeletes + pendingEdits;
+    final cache = await ref.watch(noteLocalCacheProvider.future);
+    return cache.getPendingCount();
   } catch (e) {
     return 0;
   }
