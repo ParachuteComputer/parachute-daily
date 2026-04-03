@@ -1,7 +1,10 @@
 import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../services/backend_health_service.dart';
+import '../services/transcription_api_service.dart';
 import 'feature_flags_provider.dart';
+import '../../features/daily/recorder/providers/service_providers.dart'
+    show transcriptionServiceUrlProvider, transcriptionServiceApiKeyProvider;
 
 /// Provider for backend health service
 final backendHealthServiceProvider = Provider.family<BackendHealthService, String>((ref, baseUrl) {
@@ -44,13 +47,24 @@ final periodicServerHealthProvider = StreamProvider<ServerHealthStatus?>((ref) a
   }
 });
 
-/// Whether the connected server supports transcription (Parakeet MLX etc.).
+/// Whether an external transcription service is configured and reachable.
 ///
-/// Returns true only when the server is healthy AND reports transcription_available.
+/// Checks the transcription service URL (Whisper-compatible endpoint).
 /// Used by the recording flow to decide server vs local transcription path.
 final serverTranscriptionAvailableProvider = Provider<bool>((ref) {
-  final healthAsync = ref.watch(periodicServerHealthProvider);
-  final health = healthAsync.valueOrNull;
-  return health != null && health.isHealthy && health.transcriptionAvailable;
+  final urlAsync = ref.watch(transcriptionServiceUrlProvider);
+  final url = urlAsync.valueOrNull;
+  return url != null && url.isNotEmpty;
+});
+
+/// Provider for a TranscriptionApiService instance built from current settings.
+final transcriptionApiServiceProvider = Provider<TranscriptionApiService?>((ref) {
+  final url = ref.watch(transcriptionServiceUrlProvider).valueOrNull;
+  if (url == null || url.isEmpty) return null;
+
+  final apiKey = ref.watch(transcriptionServiceApiKeyProvider).valueOrNull;
+  final service = TranscriptionApiService(baseUrl: url, apiKey: apiKey);
+  ref.onDispose(() => service.dispose());
+  return service;
 });
 

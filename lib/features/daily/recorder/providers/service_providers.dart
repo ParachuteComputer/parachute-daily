@@ -10,6 +10,8 @@ import 'package:parachute/features/daily/recorder/services/recording_post_proces
 // Settings keys
 const String _autoEnhanceKey = 'auto_enhance';
 const String _transcriptionModeKey = 'transcription_mode';
+const String _transcriptionServiceUrlKey = 'transcription_service_url';
+const String _transcriptionServiceApiKeyKey = 'transcription_service_api_key';
 
 /// Transcription mode: where voice entries get transcribed.
 ///
@@ -50,6 +52,45 @@ Future<void> setTranscriptionMode(TranscriptionMode mode) async {
   final prefs = await SharedPreferences.getInstance();
   await prefs.setString(_transcriptionModeKey, mode.name);
 }
+
+/// Provider for transcription service URL (external Whisper-compatible endpoint)
+final transcriptionServiceUrlProvider = FutureProvider<String?>((ref) async {
+  final prefs = await SharedPreferences.getInstance();
+  return prefs.getString(_transcriptionServiceUrlKey);
+});
+
+/// Set transcription service URL
+Future<void> setTranscriptionServiceUrl(String? url) async {
+  final prefs = await SharedPreferences.getInstance();
+  if (url != null && url.isNotEmpty) {
+    await prefs.setString(_transcriptionServiceUrlKey, url);
+  } else {
+    await prefs.remove(_transcriptionServiceUrlKey);
+  }
+}
+
+/// Provider for transcription service API key
+final transcriptionServiceApiKeyProvider = FutureProvider<String?>((ref) async {
+  final prefs = await SharedPreferences.getInstance();
+  return prefs.getString(_transcriptionServiceApiKeyKey);
+});
+
+/// Set transcription service API key
+Future<void> setTranscriptionServiceApiKey(String? key) async {
+  final prefs = await SharedPreferences.getInstance();
+  if (key != null && key.isNotEmpty) {
+    await prefs.setString(_transcriptionServiceApiKeyKey, key);
+  } else {
+    await prefs.remove(_transcriptionServiceApiKeyKey);
+  }
+}
+
+/// Whether a transcription service URL is configured (non-empty)
+final isTranscriptionServiceConfiguredProvider = Provider<bool>((ref) {
+  final urlAsync = ref.watch(transcriptionServiceUrlProvider);
+  final url = urlAsync.valueOrNull;
+  return url != null && url.isNotEmpty;
+});
 
 /// Provider for AudioService
 ///
