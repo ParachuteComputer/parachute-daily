@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:parachute/core/models/thing.dart';
 import '../models/journal_entry.dart';
 
 /// Raw search result from the server API.
@@ -66,12 +67,11 @@ class DailyApiService {
   // Journal Entry CRUD — backed by Notes tagged "daily"
   // ===========================================================================
 
-  /// Fetch entries for a specific date (YYYY-MM-DD).
+  /// Fetch notes for a specific date (YYYY-MM-DD).
   ///
   /// Returns `null` on network error — callers should fall back to cache.
-  /// Returns `[]` when the server responds with no entries — authoritative empty.
-  Future<List<JournalEntry>?> getEntries({required String date}) async {
-    // Query notes tagged "daily" within the date range
+  /// Returns `[]` when the server responds with no notes — authoritative empty.
+  Future<List<Note>?> getNotes({required String date}) async {
     final nextDate = _nextDate(date);
     final uri = Uri.parse('$baseUrl/api/notes').replace(
       queryParameters: {
@@ -88,83 +88,30 @@ class DailyApiService {
           .timeout(_timeout);
 
       if (response.statusCode < 200 || response.statusCode >= 300) {
-        debugPrint('[DailyApiService] GET entries ${response.statusCode}');
+        debugPrint('[DailyApiService] GET notes ${response.statusCode}');
         return null;
       }
 
       onReachabilityChanged?.call(true);
       final data = jsonDecode(response.body) as List<dynamic>;
-      final entries = <JournalEntry>[];
-      for (final json in data) {
-        final note = json as Map<String, dynamic>;
-        final entry = _noteToEntry(note);
-        // Fetch attachments for voice notes to get audio path
-        if (entry.type == JournalEntryType.voice) {
-          final audioPath = await _getAudioPath(entry.id);
-          if (audioPath != null) {
-            entries.add(JournalEntry(
-              id: entry.id,
-              title: entry.title,
-              content: entry.content,
-              type: entry.type,
-              createdAt: entry.createdAt,
-              audioPath: audioPath,
-              durationSeconds: entry.durationSeconds,
-              isPendingTranscription: entry.isPendingTranscription,
-              serverTranscriptionStatus: entry.serverTranscriptionStatus,
-            ));
-            continue;
-          }
-        }
-        entries.add(entry);
-      }
-      return entries;
+      return data
+          .map((json) => Note.fromJson(json as Map<String, dynamic>))
+          .toList();
     } catch (e) {
-      debugPrint('[DailyApiService] getEntries error (offline?): $e');
+      debugPrint('[DailyApiService] getNotes error (offline?): $e');
       onReachabilityChanged?.call(false);
       return null;
     }
   }
 
-  /// Fetch the first audio attachment path for a note.
-  Future<String?> _getAudioPath(String noteId) async {
-    try {
-      final uri = Uri.parse('$baseUrl/api/notes/$noteId/attachments');
-      final response = await _client
-          .get(uri, headers: _headers)
-          .timeout(const Duration(seconds: 5));
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body) as List<dynamic>;
-        for (final att in data) {
-          final map = att as Map<String, dynamic>;
-          final mime = map['mimeType'] as String? ?? '';
-          if (mime.startsWith('audio/')) {
-            // Return the relative path — getAudioUrl adds the server prefix
-            return map['path'] as String;
-          }
-        }
-      }
-    } catch (e) {
-      debugPrint('[DailyApiService] _getAudioPath error: $e');
-    }
-    return null;
-  }
-
-  /// Create a new entry on the server.
-  Future<JournalEntry?> createEntry({
+  /// Create a new note on the server.
+  Future<Note?> createNote({
     required String content,
-    Map<String, dynamic>? metadata,
-    DateTime? createdAt,
+    List<String> tags = const ['daily'],
   }) async {
     final uri = Uri.parse('$baseUrl/api/notes');
     debugPrint('[DailyApiService] POST $uri');
     try {
-      final entryType = metadata?['type'] as String? ?? 'text';
-
-      // Build tags list
-      final tags = <String>['daily'];
-      if (entryType == 'voice') tags.add('voice');
-
       final body = jsonEncode({
         'content': content,
         'tags': tags,
@@ -180,21 +127,20 @@ class DailyApiService {
 
       onReachabilityChanged?.call(true);
       final decoded = jsonDecode(response.body) as Map<String, dynamic>;
-      return _noteToEntry(decoded);
+      return Note.fromJson(decoded);
     } catch (e) {
-      debugPrint('[DailyApiService] createEntry error: $e');
+      debugPrint('[DailyApiService] createNote error: $e');
       onReachabilityChanged?.call(false);
       return null;
     }
   }
 
-  /// Update content of an existing entry.
-  Future<JournalEntry?> updateEntry(
-    String entryId, {
+  /// Update content of an existing note.
+  Future<Note?> updateNote(
+    String noteId, {
     String? content,
-    Map<String, dynamic>? metadata,
   }) async {
-    final uri = Uri.parse('$baseUrl/api/notes/$entryId');
+    final uri = Uri.parse('$baseUrl/api/notes/$noteId');
     debugPrint('[DailyApiService] PATCH $uri');
     try {
       final patchBody = <String, dynamic>{};
@@ -205,23 +151,23 @@ class DailyApiService {
           .timeout(_timeout);
 
       if (response.statusCode < 200 || response.statusCode >= 300) {
-        debugPrint('[DailyApiService] PATCH notes/$entryId ${response.statusCode}');
+        debugPrint('[DailyApiService] PATCH notes/$noteId ${response.statusCode}');
         return null;
       }
 
       onReachabilityChanged?.call(true);
       final decoded = jsonDecode(response.body) as Map<String, dynamic>;
-      return _noteToEntry(decoded);
+      return Note.fromJson(decoded);
     } catch (e) {
-      debugPrint('[DailyApiService] updateEntry error: $e');
+      debugPrint('[DailyApiService] updateNote error: $e');
       onReachabilityChanged?.call(false);
       return null;
     }
   }
 
-  /// Delete an entry. Returns true on success (including 404 — already gone).
-  Future<bool> deleteEntry(String entryId) async {
-    final uri = Uri.parse('$baseUrl/api/notes/$entryId');
+  /// Delete a note. Returns true on success (including 404 — already gone).
+  Future<bool> deleteNote(String noteId) async {
+    final uri = Uri.parse('$baseUrl/api/notes/$noteId');
     debugPrint('[DailyApiService] DELETE $uri');
     try {
       final response = await _client
@@ -234,34 +180,12 @@ class DailyApiService {
         onReachabilityChanged?.call(true);
         return true;
       }
-      debugPrint('[DailyApiService] DELETE notes/$entryId ${response.statusCode}');
+      debugPrint('[DailyApiService] DELETE notes/$noteId ${response.statusCode}');
       return false;
     } catch (e) {
-      debugPrint('[DailyApiService] deleteEntry error: $e');
+      debugPrint('[DailyApiService] deleteNote error: $e');
       onReachabilityChanged?.call(false);
       return false;
-    }
-  }
-
-  /// Get a single entry by ID.
-  Future<JournalEntry?> getEntry(String entryId) async {
-    final uri = Uri.parse('$baseUrl/api/notes/$entryId');
-    debugPrint('[DailyApiService] GET $uri');
-    try {
-      final response = await _client
-          .get(uri, headers: _headers)
-          .timeout(_timeout);
-
-      if (response.statusCode < 200 || response.statusCode >= 300) {
-        debugPrint('[DailyApiService] GET notes/$entryId ${response.statusCode}');
-        return null;
-      }
-
-      final decoded = jsonDecode(response.body) as Map<String, dynamic>;
-      return _noteToEntry(decoded);
-    } catch (e) {
-      debugPrint('[DailyApiService] getEntry error: $e');
-      return null;
     }
   }
 
@@ -295,38 +219,38 @@ class DailyApiService {
     }
   }
 
-  /// Upload audio and create a voice entry with attachment.
-  Future<JournalEntry?> uploadVoiceEntry({
+  /// Upload audio and create a voice note with attachment.
+  Future<Note?> uploadVoiceNote({
     required File audioFile,
     required int durationSeconds,
     String? date,
-    String? replaceEntryId,
+    String? replaceNoteId,
   }) async {
     // Upload audio first
     final audioPath = await uploadAudio(audioFile, date: date);
     if (audioPath == null) return null;
 
-    // If replacing, delete old entry
-    if (replaceEntryId != null) {
-      await deleteEntry(replaceEntryId);
+    // If replacing, delete old note
+    if (replaceNoteId != null) {
+      await deleteNote(replaceNoteId);
     }
 
     // Create a note tagged daily + voice
-    final entry = await createEntry(
+    final note = await createNote(
       content: '',
-      metadata: {'type': 'voice'},
+      tags: ['daily', 'voice'],
     );
 
     // Attach the audio file to the note
-    if (entry != null && audioPath.isNotEmpty) {
-      await _addAttachment(entry.id, audioPath, 'audio/wav');
+    if (note != null && audioPath.isNotEmpty) {
+      await addAttachment(note.id, audioPath, 'audio/wav');
     }
 
-    return entry;
+    return note;
   }
 
   /// Add an attachment to a note.
-  Future<void> _addAttachment(String noteId, String path, String mimeType) async {
+  Future<void> addAttachment(String noteId, String path, String mimeType) async {
     final uri = Uri.parse('$baseUrl/api/notes/$noteId/attachments');
     try {
       await _client.post(
@@ -339,19 +263,11 @@ class DailyApiService {
     }
   }
 
-  /// Trigger LLM cleanup on an existing entry's content.
-  ///
-  /// Not yet supported — returns false.
-  Future<bool> cleanupEntry(String entryId) async {
-    debugPrint('[DailyApiService] cleanupEntry: not yet supported');
-    return false;
-  }
-
   // ===========================================================================
   // Search
   // ===========================================================================
 
-  /// Keyword search across all entries.
+  /// Keyword search across all daily entries.
   Future<List<ApiSearchResult>> searchEntries(
     String query, {
     int limit = 30,
@@ -382,47 +298,128 @@ class DailyApiService {
   }
 
   // ===========================================================================
-  // Registration — no longer needed in v3, tags are seeded by the server
+  // Backward-compatible aliases (consumers not yet migrated to Note API)
+  // TODO(v3-cache): Remove these once journal_screen.dart and other consumers
+  // are updated to use Note-based methods directly.
   // ===========================================================================
 
-  /// No-op in v3 — builtin tags are seeded automatically by the server.
-  Future<bool> registerApp() async {
-    debugPrint('[DailyApiService] registerApp: no-op in v3 (tags seeded by server)');
-    return true;
+  /// Alias for [getNotes] — returns JournalEntry for old consumers.
+  Future<List<JournalEntry>?> getEntries({required String date}) async {
+    final notes = await getNotes(date: date);
+    if (notes == null) return null;
+    final entries = <JournalEntry>[];
+    for (final note in notes) {
+      String? audioPath;
+      if (note.isVoice) {
+        audioPath = await getAudioPath(note.id);
+      }
+      entries.add(_noteToEntry(note, audioPath: audioPath));
+    }
+    return entries;
+  }
+
+  /// Alias for [createNote].
+  Future<JournalEntry?> createEntry({
+    required String content,
+    Map<String, dynamic>? metadata,
+    DateTime? createdAt,
+  }) async {
+    final entryType = metadata?['type'] as String? ?? 'text';
+    final tags = <String>['daily'];
+    if (entryType == 'voice') tags.add('voice');
+    final note = await createNote(content: content, tags: tags);
+    if (note == null) return null;
+    return _noteToEntry(note);
+  }
+
+  /// Alias for [updateNote].
+  Future<JournalEntry?> updateEntry(
+    String entryId, {
+    String? content,
+    Map<String, dynamic>? metadata,
+  }) async {
+    final note = await updateNote(entryId, content: content);
+    if (note == null) return null;
+    return _noteToEntry(note);
+  }
+
+  /// Alias for [deleteNote].
+  Future<bool> deleteEntry(String entryId) => deleteNote(entryId);
+
+  /// Alias for [uploadVoiceNote].
+  Future<JournalEntry?> uploadVoiceEntry({
+    required File audioFile,
+    required int durationSeconds,
+    String? date,
+    String? replaceEntryId,
+  }) async {
+    final note = await uploadVoiceNote(
+      audioFile: audioFile,
+      durationSeconds: durationSeconds,
+      date: date,
+      replaceNoteId: replaceEntryId,
+    );
+    if (note == null) return null;
+    return _noteToEntry(note);
+  }
+
+  /// No-op — kept for backward compatibility.
+  Future<bool> cleanupEntry(String entryId) async => false;
+
+  /// No-op — kept for backward compatibility.
+  Future<bool> registerApp() async => true;
+
+  /// Alias for getNote by ID.
+  Future<JournalEntry?> getEntry(String entryId) async {
+    final uri = Uri.parse('$baseUrl/api/notes/$entryId');
+    try {
+      final response = await _client.get(uri, headers: _headers).timeout(_timeout);
+      if (response.statusCode < 200 || response.statusCode >= 300) return null;
+      final decoded = jsonDecode(response.body) as Map<String, dynamic>;
+      return _noteToEntry(Note.fromJson(decoded));
+    } catch (e) {
+      debugPrint('[DailyApiService] getEntry error: $e');
+      return null;
+    }
+  }
+
+  static JournalEntry _noteToEntry(Note note, {String? audioPath}) {
+    final isVoice = note.hasTag('voice');
+    return JournalEntry(
+      id: note.id,
+      title: note.path ?? '',
+      content: note.content,
+      type: isVoice ? JournalEntryType.voice : JournalEntryType.text,
+      createdAt: note.createdAt,
+      audioPath: audioPath,
+    );
   }
 
   void dispose() => _client.close();
 
-  // ===========================================================================
-  // Translation helpers — v3 Note → app models
-  // ===========================================================================
-
-  /// Convert a Note JSON (from v3 API) to a [JournalEntry].
-  ///
-  /// Tags are flat strings: ["daily", "voice"], not typed objects.
-  static JournalEntry _noteToEntry(Map<String, dynamic> json) {
-    final tags = (json['tags'] as List<dynamic>?)
-            ?.map((t) => t as String)
-            .toList() ??
-        [];
-
-    final isVoice = tags.contains('voice');
-    final entryType = isVoice ? 'voice' : 'text';
-
-    return JournalEntry(
-      id: json['id'] as String,
-      title: '',
-      content: json['content'] as String? ?? '',
-      type: JournalEntry.parseType(entryType),
-      createdAt: JournalEntry.parseDateTime(json['createdAt'] as String?),
-      audioPath: null, // Audio is now in attachments, not tag fields
-      durationSeconds: null,
-      isPendingTranscription: false,
-      serverTranscriptionStatus: null,
-    );
+  /// Fetch the first audio attachment path for a note.
+  Future<String?> getAudioPath(String noteId) async {
+    try {
+      final uri = Uri.parse('$baseUrl/api/notes/$noteId/attachments');
+      final response = await _client
+          .get(uri, headers: _headers)
+          .timeout(const Duration(seconds: 5));
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body) as List<dynamic>;
+        for (final att in data) {
+          final map = att as Map<String, dynamic>;
+          final mime = map['mimeType'] as String? ?? '';
+          if (mime.startsWith('audio/')) {
+            return map['path'] as String;
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('[DailyApiService] getAudioPath error: $e');
+    }
+    return null;
   }
 
-  /// Convert a Note JSON (from search results) to an [ApiSearchResult].
   static ApiSearchResult _noteToSearchResult(Map<String, dynamic> json) {
     final content = json['content'] as String? ?? '';
     return ApiSearchResult(
@@ -436,12 +433,15 @@ class DailyApiService {
   }
 
   /// Compute the next date string for date range queries.
-  static String _nextDate(String date) {
-    final dt = DateTime.parse(date);
-    final next = dt.add(const Duration(days: 1));
-    final y = next.year.toString().padLeft(4, '0');
-    final m = next.month.toString().padLeft(2, '0');
-    final d = next.day.toString().padLeft(2, '0');
-    return '$y-$m-$d';
-  }
+  static String _nextDate(String date) => nextDate(date);
+}
+
+/// Compute the next date string (YYYY-MM-DD) for date range queries.
+String nextDate(String date) {
+  final dt = DateTime.parse(date);
+  final next = dt.add(const Duration(days: 1));
+  final y = next.year.toString().padLeft(4, '0');
+  final m = next.month.toString().padLeft(2, '0');
+  final d = next.day.toString().padLeft(2, '0');
+  return '$y-$m-$d';
 }
