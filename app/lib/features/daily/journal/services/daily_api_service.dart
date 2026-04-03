@@ -243,14 +243,14 @@ class DailyApiService {
 
     // Attach the audio file to the note
     if (note != null && audioPath.isNotEmpty) {
-      await _addAttachment(note.id, audioPath, 'audio/wav');
+      await addAttachment(note.id, audioPath, 'audio/wav');
     }
 
     return note;
   }
 
   /// Add an attachment to a note.
-  Future<void> _addAttachment(String noteId, String path, String mimeType) async {
+  Future<void> addAttachment(String noteId, String path, String mimeType) async {
     final uri = Uri.parse('$baseUrl/api/notes/$noteId/attachments');
     try {
       await _client.post(
@@ -433,12 +433,15 @@ class DailyApiService {
   }
 
   /// Compute the next date string for date range queries.
-  static String _nextDate(String date) {
-    final dt = DateTime.parse(date);
-    final next = dt.add(const Duration(days: 1));
-    final y = next.year.toString().padLeft(4, '0');
-    final m = next.month.toString().padLeft(2, '0');
-    final d = next.day.toString().padLeft(2, '0');
-    return '$y-$m-$d';
-  }
+  static String _nextDate(String date) => nextDate(date);
+}
+
+/// Compute the next date string (YYYY-MM-DD) for date range queries.
+String nextDate(String date) {
+  final dt = DateTime.parse(date);
+  final next = dt.add(const Duration(days: 1));
+  final y = next.year.toString().padLeft(4, '0');
+  final m = next.month.toString().padLeft(2, '0');
+  final d = next.day.toString().padLeft(2, '0');
+  return '$y-$m-$d';
 }

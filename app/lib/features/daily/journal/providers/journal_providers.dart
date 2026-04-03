@@ -15,7 +15,7 @@ import 'package:parachute/core/services/graph_api_service.dart';
 import 'package:parachute/core/services/note_local_cache.dart';
 import '../models/journal_entry.dart';
 import '../models/journal_day.dart';
-import '../services/daily_api_service.dart';
+import '../services/daily_api_service.dart' show DailyApiService, nextDate;
 
 // ============================================================================
 // Daily API Service Providers (server-backed)
@@ -197,12 +197,15 @@ Future<JournalDay> _loadJournal(
       cache.removeStaleNotes(
         dateStr, nextDateStr, serverNotes.map((n) => n.id).toSet(),
       );
-      // Fetch and cache audio paths for voice notes.
-      for (final note in serverNotes) {
-        if (note.isVoice) {
-          final audioPath = await api.getAudioPath(note.id);
-          if (audioPath != null) {
-            cache.putAttachment(note.id, audioPath, 'audio/wav');
+      // Fetch and cache audio paths for voice notes (parallel).
+      final voiceNotes = serverNotes.where((n) => n.isVoice).toList();
+      if (voiceNotes.isNotEmpty) {
+        final audioPaths = await Future.wait(
+          voiceNotes.map((n) => api.getAudioPath(n.id)),
+        );
+        for (var i = 0; i < voiceNotes.length; i++) {
+          if (audioPaths[i] != null) {
+            cache.putAttachment(voiceNotes[i].id, audioPaths[i]!, 'audio/wav');
           }
         }
       }
@@ -253,9 +256,8 @@ Future<void> _flushPendingOps(
         tags: tags,
       );
       if (serverNote != null) {
-        // Attach audio if present
         if (resolvedAudioPath != null) {
-          // Audio attachment is handled by the API service
+          await api.addAttachment(serverNote.id, resolvedAudioPath, 'audio/wav');
         }
         cache.removeNote(note.id);
         cache.putNotes([serverNote]);
@@ -285,14 +287,7 @@ Future<void> _flushPendingOps(
   }
 }
 
-String _nextDate(String date) {
-  final dt = DateTime.parse(date);
-  final next = dt.add(const Duration(days: 1));
-  final y = next.year.toString().padLeft(4, '0');
-  final m = next.month.toString().padLeft(2, '0');
-  final d = next.day.toString().padLeft(2, '0');
-  return '$y-$m-$d';
-}
+String _nextDate(String date) => nextDate(date);
 
 // ============================================================================
 // Backward-compatible aliases

@@ -91,20 +91,29 @@ class NoteLocalCache {
   }
 
   /// Return all visible notes with a given tag (for Digest/Docs offline).
+  ///
+  /// Uses JSON pattern matching in SQL to avoid full table scan.
+  /// Matches exact tag and sub-tags (e.g., "doc" matches "doc" and "doc/meeting").
   List<Note> getNotesWithTag(String tag, {String? excludeTag}) {
     try {
+      // Match exact tag: "tag" appears in JSON array as "tag" or "tag/..."
+      final conditions = <String>[
+        "COALESCE(sync_state, 'synced') != 'pending_delete'",
+        "(tags_json LIKE ? OR tags_json LIKE ?)",
+      ];
+      final params = <Object>[
+        '%"$tag"%',
+        '%"$tag/%',
+      ];
+      if (excludeTag != null) {
+        conditions.add("tags_json NOT LIKE ?");
+        params.add('%"$excludeTag"%');
+      }
       final rows = _db.select(
-        "SELECT * FROM notes "
-        "WHERE COALESCE(sync_state, 'synced') != 'pending_delete' "
-        "ORDER BY created_at DESC",
+        "SELECT * FROM notes WHERE ${conditions.join(' AND ')} ORDER BY created_at DESC",
+        params,
       );
-      return rows.map(_rowToNote).where((note) {
-        if (!note.tags.any((t) => t == tag || t.startsWith('$tag/'))) {
-          return false;
-        }
-        if (excludeTag != null && note.hasTag(excludeTag)) return false;
-        return true;
-      }).toList();
+      return rows.map(_rowToNote).toList();
     } catch (e) {
       debugPrint('[NoteLocalCache] getNotesWithTag error: $e');
       return [];
