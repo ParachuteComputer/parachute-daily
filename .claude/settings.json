@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(~/.parachute/server.yaml)",
+      "Read(**/.env*)",
+      "Edit(**/.env*)",
+      "Edit(~/.parachute/server.yaml)",
+      "Write(**/.env*)"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "file=\"$(echo $TOOL_INPUT | jq -r '.file_path // empty')\" && case \"$file\" in *.ts|*.tsx|*.js|*.mjs) cd /Users/parachute/Code/parachute-daily && npx prettier --write \"$file\" 2>/dev/null ;; esac; exit 0"
+          }
+        ]
+      }
+    ]
+  }
+}

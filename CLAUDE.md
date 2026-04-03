@@ -39,6 +39,8 @@ Tags use optional `/` hierarchy by convention: `#doc/meeting`, `#doc/draft`. Pre
 
 `create-note`, `update-note`, `delete-note`, `read-notes`, `search-notes`, `tag-note`, `untag-note`, `create-link`, `delete-link`, `get-links`, `list-tags`
 
+See `.claude/rules/mcp-tools.md` for detailed params and date range semantics.
+
 ## Running
 
 ```bash
@@ -57,6 +59,10 @@ cd core && npm test    # 39 tests
 cd local && npm test   # 22 tests
 cd app && flutter analyze
 ```
+
+## Workflow
+
+Feature branches + PRs for all changes. Run all tests before committing. See `.claude/rules/workflow.md`.
 
 ## Architecture
 
