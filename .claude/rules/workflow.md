@@ -8,15 +8,13 @@
 
 ## Before Committing
 
-Always run the full validation suite before committing:
+Run static analysis before committing:
 
 ```bash
-cd core && npm test          # 39 tests, ~1s
-cd ../local && npm test      # 22 tests, ~1s
-cd ../app && flutter analyze # static analysis, ~5s
+cd app && flutter analyze
 ```
 
-If any check fails, fix before committing. No exceptions.
+If it fails, fix before committing. No exceptions.
 
 ## Commit Messages
 
@@ -28,7 +26,7 @@ Keep the first line under 72 characters. Add a body for non-trivial changes expl
 
 Don't deploy mid-debug. The workflow is:
 1. Make changes
-2. Run tests
+2. Run analyze
 3. Commit to branch
 4. Build and deploy APK
 5. Test on device

@@ -1,23 +1,18 @@
 # Testing Rules
 
-## Test Suites
+## Test Suite
 
-| Package | Command | Count | Time |
-|---------|---------|-------|------|
-| core | `cd core && npm test` | 39 | ~1s |
-| local | `cd local && npm test` | 22 | ~1s |
-| app | `cd app && flutter analyze` | static | ~5s |
+| Package | Command | Type | Time |
+|---------|---------|------|------|
+| app | `cd app && flutter analyze` | static analysis | ~5s |
 
-## When to Run Tests
+## When to Run
 
-- **Always** before committing (all three suites)
-- After modifying `core/src/` — run core tests
-- After modifying `local/src/` — run both core and local tests (local depends on core)
+- **Always** before committing
 - After modifying `app/lib/` — run flutter analyze
-- After modifying MCP tools — run core tests (tools are tested there)
 
 ## Test Patterns
 
-- Core tests use in-memory SQLite (`:memory:`) — no fixtures to manage
-- Local tests use supertest against the Hono app
-- Flutter uses `flutter analyze` for static analysis; integration tests exist but run manually on macOS
+- Flutter uses `flutter analyze` for static analysis
+- Integration tests exist but run manually on macOS: `flutter test integration_test/<test>.dart`
+- Integration tests share the macOS app process — don't run them in parallel

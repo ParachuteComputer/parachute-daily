@@ -9,7 +9,7 @@ Voice journaling app with offline-first architecture. AI agents plug in via MCP.
 ## Architecture
 
 ```
-User → Flutter App → GraphApiService → Parachute Daily Server (port 1940)
+User → Flutter App → GraphApiService → Parachute Vault server
             ↓                                    ↓
    Local SQLite cache                    SQLite database
    (offline journal)                     (Notes, Tags, Links, Attachments)
@@ -18,7 +18,7 @@ User → Flutter App → GraphApiService → Parachute Daily Server (port 1940)
                                          (Claude / AI agents)
 ```
 
-**Key principle**: Daily works offline with local SQLite cache. Server connection enables sync, search, and AI agent access via MCP.
+**Key principle**: Daily works offline with local SQLite cache. Vault connection enables sync, search, and AI agent access via MCP. See [parachute-vault](https://github.com/ParachuteComputer/parachute-vault) for server details.
 
 ### Navigation
 
@@ -90,7 +90,7 @@ Tags use optional `/` hierarchy: `#doc/meeting`, `#doc/draft`. The Docs tab quer
 
 ### Server API
 
-The `GraphApiService` targets these endpoints on the Hono server (default port 1940):
+The `GraphApiService` targets these endpoints on the Parachute Vault server:
 
 | Endpoint | Purpose |
 |----------|---------|
@@ -150,8 +150,8 @@ Audio processing services have a SINGLE canonical location:
 # Desktop development
 flutter run -d macos
 
-# Server (separate terminal)
-cd ../local && npx tsx watch src/server.ts
+# Vault server (separate terminal, see parachute-vault repo)
+# parachute vault init && parachute vault create default
 
 # Static analysis
 flutter analyze
@@ -171,6 +171,6 @@ flutter test integration_test/daily_test.dart
 - `core/` is inlined — do NOT add `parachute_app_core` back as a dependency
 - Integration tests share the macOS app process — don't run them in parallel
 - First build takes ~90s (pod install + compile), subsequent builds ~15-20s
-- Server runs on port 1940 by default (configurable via `PORT` env var)
+- Vault server runs on port 1940 by default
 - `Wrap` not `Row` for chip lists that may overflow
 - Bottom sheets without `SingleChildScrollView` will overflow when keyboard opens

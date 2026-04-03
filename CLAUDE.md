@@ -1,77 +1,16 @@
-# Parachute Daily — Monorepo
+# Parachute Daily — Flutter App
 
-Personal note-taking system with voice journaling, AI agents via MCP, and offline-first mobile app.
-
-## Packages
-
-```
-core/    — TypeScript library: schema, store, MCP tools (npm: @parachute/core)
-local/   — Hono HTTP server + MCP stdio server (npm: @parachute/local)
-app/     — Flutter mobile/desktop app (see app/CLAUDE.md for details)
-```
-
-## Data Model
-
-Everything is a **Note** differentiated by flat **Tags**. Five tables:
-
-```sql
-notes       (id, content, path, created_at, updated_at)
-tags        (name)
-note_tags   (note_id, tag_name)
-attachments (id, note_id, path, mime_type, created_at)
-links       (source_id, target_id, relationship, created_at)
-```
-
-### Built-in Tags
-
-```
-#daily      — user-captured content (voice memos, typed notes)
-#doc        — persistent documents (blog drafts, meeting notes, lists)
-#digest     — AI/system-created content for the user to consume
-#pinned     — kept prominent (applies to any note)
-#archived   — user is done with this (applies to any note)
-#voice      — note was transcribed from voice
-```
-
-Tags use optional `/` hierarchy by convention: `#doc/meeting`, `#doc/draft`. Prefix queries (`LIKE 'doc%'`) match all sub-tags. Notes can have multiple tags — e.g., `#daily` + `#doc/meeting` appears in both Daily and Docs views.
-
-### MCP Tools (11)
-
-`create-note`, `update-note`, `delete-note`, `read-notes`, `search-notes`, `tag-note`, `untag-note`, `create-link`, `delete-link`, `get-links`, `list-tags`
-
-See `.claude/rules/mcp-tools.md` for detailed params and date range semantics.
-
-## Running
-
-```bash
-# Server (port 1940, includes MCP at /mcp)
-cd local && npx tsx watch src/server.ts
-
-# Flutter app
-cd app && flutter run -d macos       # desktop
-cd app && flutter run -d <device>    # android
-
-# Tests
-cd core && npm test    # 39 tests
-cd local && npm test   # 22 tests
-cd app && flutter analyze
-```
-
-## Workflow
-
-Feature branches + PRs for all changes. Run all tests before committing. See `.claude/rules/workflow.md`.
+Voice journaling app with offline-first architecture. Connects to a Parachute Vault for storage, search, and AI agent access.
 
 ## Architecture
 
 ```
-Flutter App  →  HTTP API (:1940)  →  SQLite (notes/tags/links)
-                                          ↑
-Claude/AI    →  MCP (/mcp)  ──────────────┘
+Flutter App  →  Vault HTTP API  →  SQLite (notes/tags/links)
+                                        ↑
+Claude/AI    →  Vault MCP  ─────────────┘
 ```
 
-Server at `~/.parachute/daily.db`. Assets at `~/.parachute/daily/assets/`. Auth via API keys in `~/.parachute/server.yaml` (localhost bypasses auth).
-
-MCP setup for Claude Code: `claude mcp add parachute-daily --transport http --url http://localhost:1940/mcp`
+The app talks to a Parachute Vault over HTTP. The vault owns all data (notes, tags, links, attachments) and MCP tools. See [parachute-vault](https://github.com/ParachuteComputer/parachute-vault) for server/MCP details.
 
 ## App Views (Three Tabs)
 
@@ -80,3 +19,17 @@ MCP setup for Claude Code: `claude mcp add parachute-daily --transport http --ur
 | **Digest** | `#digest AND NOT #archived` | AI briefs, clipped content |
 | **Daily** | `#daily`, grouped by date | Voice memos, typed notes |
 | **Docs** | `#doc*`, searchable | Blog drafts, meeting notes, lists |
+
+## Running
+
+```bash
+cd app && flutter run -d macos       # desktop
+cd app && flutter run -d <device>    # android
+cd app && flutter analyze            # static analysis
+```
+
+## Workflow
+
+Feature branches + PRs for all changes. Run `flutter analyze` before committing. See `.claude/rules/workflow.md`.
+
+See `app/CLAUDE.md` for detailed Flutter conventions, directory structure, and gotchas.
