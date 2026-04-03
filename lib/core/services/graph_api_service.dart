@@ -4,9 +4,12 @@ import 'package:http/http.dart' as http;
 import '../models/thing.dart';
 
 /// Service for communicating with the Parachute Daily v3 API.
-/// Targets /api/* on the local server.
+///
+/// Routes to `/api/*` by default, or `/vaults/{name}/api/*` when a
+/// vault name is specified (multi-vault support).
 class GraphApiService {
   final String baseUrl;
+  final String? vaultName;
   final http.Client _client;
   final String? _apiKey;
   final Duration _timeout;
@@ -16,6 +19,7 @@ class GraphApiService {
 
   GraphApiService({
     required this.baseUrl,
+    this.vaultName,
     String? apiKey,
     http.Client? client,
     Duration timeout = const Duration(seconds: 15),
@@ -23,6 +27,14 @@ class GraphApiService {
   })  : _apiKey = apiKey,
         _client = client ?? http.Client(),
         _timeout = timeout;
+
+  /// API path prefix — `/api` for default vault, `/vaults/{name}/api` for named vault.
+  String get _apiPrefix {
+    if (vaultName != null && vaultName!.isNotEmpty) {
+      return '/vaults/$vaultName/api';
+    }
+    return '/api';
+  }
 
   // ---- Notes ----
 
@@ -188,7 +200,7 @@ class GraphApiService {
   /// Upload an audio file, returns the relative storage path.
   Future<String?> uploadAudio(Uint8List data, String filename) async {
     try {
-      final uri = Uri.parse('$baseUrl/api/storage/upload');
+      final uri = Uri.parse('$baseUrl$_apiPrefix/storage/upload');
       final request = http.MultipartRequest('POST', uri);
       _addAuthHeaders(request.headers);
       request.files.add(http.MultipartFile.fromBytes(
@@ -217,7 +229,7 @@ class GraphApiService {
   /// Check server health.
   Future<bool> isHealthy() async {
     try {
-      final uri = Uri.parse('$baseUrl/api/health');
+      final uri = Uri.parse('$baseUrl$_apiPrefix/health');
       final response = await _client.get(uri, headers: _headers()).timeout(
         const Duration(seconds: 5),
       );
@@ -230,11 +242,37 @@ class GraphApiService {
     }
   }
 
+  // ---- Vaults ----
+
+  /// Fetch the list of available vaults from the server.
+  /// Returns vault names, or null on error.
+  Future<List<String>?> fetchVaults() async {
+    try {
+      final uri = Uri.parse('$baseUrl/vaults');
+      final response = await _client.get(uri, headers: _headers()).timeout(
+        const Duration(seconds: 5),
+      );
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data is List) {
+          return data
+              .map((v) => (v is Map ? v['name'] as String? : v?.toString()) ?? '')
+              .where((n) => n.isNotEmpty)
+              .toList();
+        }
+      }
+      return null;
+    } catch (e) {
+      debugPrint('[GraphApiService] fetchVaults error: $e');
+      return null;
+    }
+  }
+
   // ---- HTTP Helpers ----
 
   Future<dynamic> _get(String path, Map<String, String> params) async {
     try {
-      final uri = Uri.parse('$baseUrl/api$path').replace(queryParameters: params.isNotEmpty ? params : null);
+      final uri = Uri.parse('$baseUrl$_apiPrefix$path').replace(queryParameters: params.isNotEmpty ? params : null);
       final response = await _client.get(uri, headers: _headers()).timeout(_timeout);
       _notifyReachable(true);
       if (response.statusCode == 200) return jsonDecode(response.body);
@@ -250,7 +288,7 @@ class GraphApiService {
 
   Future<dynamic> _post(String path, Map<String, dynamic> body) async {
     try {
-      final uri = Uri.parse('$baseUrl/api$path');
+      final uri = Uri.parse('$baseUrl$_apiPrefix$path');
       final response = await _client.post(
         uri,
         headers: _headers(),
@@ -271,7 +309,7 @@ class GraphApiService {
 
   Future<dynamic> _patch(String path, Map<String, dynamic> body) async {
     try {
-      final uri = Uri.parse('$baseUrl/api$path');
+      final uri = Uri.parse('$baseUrl$_apiPrefix$path');
       final response = await _client.patch(
         uri,
         headers: _headers(),
@@ -290,7 +328,7 @@ class GraphApiService {
 
   Future<dynamic> _delete(String path) async {
     try {
-      final uri = Uri.parse('$baseUrl/api$path');
+      final uri = Uri.parse('$baseUrl$_apiPrefix$path');
       final response = await _client.delete(uri, headers: _headers()).timeout(_timeout);
       _notifyReachable(true);
       if (response.statusCode == 200) return jsonDecode(response.body);
@@ -305,7 +343,7 @@ class GraphApiService {
 
   Future<dynamic> _deleteWithBody(String path, Map<String, dynamic> body) async {
     try {
-      final uri = Uri.parse('$baseUrl/api$path');
+      final uri = Uri.parse('$baseUrl$_apiPrefix$path');
       final request = http.Request('DELETE', uri);
       request.headers.addAll(_headers());
       request.body = jsonEncode(body);

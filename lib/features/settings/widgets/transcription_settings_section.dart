@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:parachute/core/theme/design_tokens.dart';
+import 'package:parachute/core/providers/backend_health_provider.dart'
+    show serverTranscriptionAvailableProvider;
 import 'package:parachute/features/daily/recorder/providers/service_providers.dart';
 
 /// Settings section for transcription mode (auto / server / local).
@@ -11,7 +13,7 @@ class TranscriptionSettingsSection extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final modeAsync = ref.watch(transcriptionModeProvider);
-    final serverAvailable = ref.watch(isTranscriptionServiceConfiguredProvider);
+    final serverAvailable = ref.watch(serverTranscriptionAvailableProvider);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -80,7 +82,7 @@ class _StatusChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = serverAvailable ? BrandColors.success : BrandColors.driftwood;
-    final label = serverAvailable ? 'Service configured' : 'Local only';
+    final label = serverAvailable ? 'Server ready' : 'Local only';
 
     return Container(
       padding: EdgeInsets.symmetric(

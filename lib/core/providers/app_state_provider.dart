@@ -158,6 +158,36 @@ final serverUrlProvider = AsyncNotifierProvider<ServerUrlNotifier, String?>(() {
   return ServerUrlNotifier();
 });
 
+/// Notifier for selected vault name with persistence.
+///
+/// When set, API calls route to `/vaults/{name}/api/*` instead of `/api/*`.
+/// Empty or null means use the default vault.
+class VaultNameNotifier extends AsyncNotifier<String?> {
+  static const _key = 'parachute_vault_name';
+
+  @override
+  Future<String?> build() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_key);
+  }
+
+  Future<void> setVaultName(String? name) async {
+    final prefs = await SharedPreferences.getInstance();
+    if (name != null && name.isNotEmpty) {
+      await prefs.setString(_key, name);
+      state = AsyncData(name);
+    } else {
+      await prefs.remove(_key);
+      state = const AsyncData(null);
+    }
+  }
+}
+
+/// Selected vault name provider (null = default vault)
+final vaultNameProvider = AsyncNotifierProvider<VaultNameNotifier, String?>(() {
+  return VaultNameNotifier();
+});
+
 /// App mode based on flavor and server configuration
 ///
 /// - Daily flavor: Always dailyOnly (Chat/Vault not available)

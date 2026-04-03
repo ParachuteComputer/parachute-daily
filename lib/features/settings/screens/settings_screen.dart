@@ -4,7 +4,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:parachute/core/theme/design_tokens.dart';
 import '../widgets/omi_device_section.dart';
 import '../widgets/server_settings_section.dart';
-import '../widgets/transcription_service_section.dart';
 import '../widgets/transcription_settings_section.dart';
 import '../widgets/about_section.dart';
 import '../widgets/settings_card.dart';
@@ -43,13 +42,6 @@ class SettingsScreen extends ConsumerWidget {
           SettingsCard(
             isDark: isDark,
             child: const ServerSettingsSection(),
-          ),
-          SizedBox(height: Spacing.xl),
-
-          // Transcription Service
-          SettingsCard(
-            isDark: isDark,
-            child: const TranscriptionServiceSection(),
           ),
           SizedBox(height: Spacing.xl),
 

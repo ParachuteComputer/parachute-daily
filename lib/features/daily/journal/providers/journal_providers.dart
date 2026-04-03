@@ -6,7 +6,7 @@ import 'package:parachute/core/models/thing.dart';
 import 'package:parachute/core/providers/feature_flags_provider.dart'
     show aiServerUrlProvider;
 import 'package:parachute/core/providers/app_state_provider.dart'
-    show apiKeyProvider;
+    show apiKeyProvider, vaultNameProvider;
 import 'package:parachute/core/providers/backend_health_provider.dart'
     show periodicServerHealthProvider;
 import 'package:parachute/core/providers/connectivity_provider.dart'
@@ -47,9 +47,11 @@ final graphApiServiceProvider = Provider<GraphApiService>((ref) {
   final baseUrl = urlAsync.valueOrNull ?? AppConfig.defaultServerUrl;
   final apiKeyAsync = ref.watch(apiKeyProvider);
   final apiKey = apiKeyAsync.valueOrNull;
+  final vaultName = ref.watch(vaultNameProvider).valueOrNull;
 
   return GraphApiService(
     baseUrl: baseUrl,
+    vaultName: vaultName,
     apiKey: apiKey,
     onReachabilityChanged: (reachable) {
       ref.read(serverReachableOverrideProvider.notifier).state = reachable;
