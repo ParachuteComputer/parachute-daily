@@ -163,7 +163,7 @@ flutter test integration_test/daily_test.dart
 
 ## Workflow
 
-Feature branches + PRs for all changes. Run `flutter analyze` before committing. See `.claude/rules/workflow.md`.
+**Never push directly to main.** All changes go through feature branches and PRs. Run `flutter analyze` before committing. See `.claude/rules/workflow.md` for full process.
 
 ## Gotchas
 
