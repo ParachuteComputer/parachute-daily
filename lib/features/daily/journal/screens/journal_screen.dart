@@ -507,23 +507,54 @@ class _JournalScreenState extends ConsumerState<JournalScreen> with WidgetsBindi
     );
 
     if (ingestResult != null && mounted) {
-      debugPrint('[JournalScreen] Ingest succeeded: ${ingestResult.id}');
-      await _appendEntryToCache(
-        JournalEntry(
-          id: ingestResult.id,
-          title: ingestResult.path ?? '',
-          content: ingestResult.content,
-          type: JournalEntryType.voice,
-          createdAt: ingestResult.createdAt,
-          audioPath: null, // Server manages the audio
-          durationSeconds: duration,
-        ),
+      debugPrint('[JournalScreen] Ingest succeeded: ${ingestResult.id}, content: ${ingestResult.content.length} chars');
+
+      // Cache the entry (may have empty content if transcription is async)
+      final entry = JournalEntry(
+        id: ingestResult.id,
+        title: ingestResult.path ?? '',
         content: ingestResult.content,
         type: JournalEntryType.voice,
+        createdAt: ingestResult.createdAt,
+        audioPath: ingestResult.content.isEmpty ? localAudioPath : null,
+        durationSeconds: duration,
+      );
+      await _appendEntryToCache(
+        entry,
+        content: ingestResult.content,
+        type: JournalEntryType.voice,
+        audioPath: ingestResult.content.isEmpty ? localAudioPath : null,
         durationSeconds: duration,
       );
 
-      // Clean up local audio — server has it now
+      // If vault returned content (sync transcription), we're done
+      if (ingestResult.content.isNotEmpty) {
+        try { await File(localAudioPath).delete(); } catch (_) {}
+        return;
+      }
+
+      // Vault returned empty content — transcription is async or unavailable.
+      // Transcribe client-side using the local audio file, then update the note.
+      debugPrint('[JournalScreen] Ingest returned empty content, transcribing client-side...');
+      final transcriptionService = ref.read(transcriptionApiServiceProvider);
+      if (transcriptionService != null && useServerTranscription) {
+        try {
+          final transcript = await transcriptionService.transcribe(localAudioPath);
+          if (transcript.isNotEmpty && mounted) {
+            await api.updateNote(ingestResult.id, content: transcript);
+            final updated = entry.copyWith(content: transcript);
+            if (_cachedJournal != null) {
+              setState(() {
+                _cachedJournal = _cachedJournal!.updateEntry(updated);
+              });
+            }
+            debugPrint('[JournalScreen] Client-side transcription complete: ${transcript.length} chars');
+          }
+        } catch (e) {
+          debugPrint('[JournalScreen] Client-side transcription failed: $e');
+        }
+      }
+
       try { await File(localAudioPath).delete(); } catch (_) {}
       return;
     }
