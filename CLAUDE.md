@@ -50,6 +50,8 @@ lib/
 │   ├── theme/
 │   │   ├── design_tokens.dart       # BrandColors (use BrandColors.forest, NOT DesignTokens)
 │   │   └── app_theme.dart
+│   ├── screens/
+│   │   └── note_detail_screen.dart  # Shared note viewer/editor (Digest + Docs)
 │   └── widgets/                     # Shared UI components
 └── features/
     ├── daily/                       # Voice journaling (offline-capable)
@@ -58,7 +60,13 @@ lib/
     │   ├── recorder/                # Audio recording & transcription
     │   ├── capture/                 # Photo/handwriting input
     │   └── search/                  # Journal search
-    ├── settings/                    # App settings (server URL, transcription, Omi device)
+    ├── digest/                      # AI-surfaced content inbox
+    │   ├── screens/                 # DigestScreen — cards, archive toggle, pinning
+    │   └── providers/               # Digest data + grouping providers
+    ├── docs/                        # Persistent documents
+    │   ├── screens/                 # DocsScreen — grouped by sub-tag, searchable
+    │   └── providers/               # Docs data + search providers
+    ├── settings/                    # App settings (server URL, vault, transcription, Omi)
     └── onboarding/                  # Setup flow
 ```
 
@@ -86,7 +94,7 @@ Tags use optional `/` hierarchy: `#doc/meeting`, `#doc/draft`. The Docs tab quer
 
 ### Server API
 
-The `GraphApiService` targets these endpoints on the Parachute Vault server:
+The `GraphApiService` and `DailyApiService` target these endpoints on the Parachute Vault server. When a vault name is selected, routes use `/vaults/{name}/api/*` instead of `/api/*`.
 
 | Endpoint | Purpose |
 |----------|---------|
@@ -99,10 +107,12 @@ The `GraphApiService` targets these endpoints on the Parachute Vault server:
 | `GET /api/search?q=...` | Full-text search (FTS5) |
 | `POST /api/storage/upload` | Upload audio/image assets |
 | `GET /api/health` | Server health check |
+| `GET /vaults` | List available vaults |
+| `POST /v1/audio/transcriptions` | Whisper-compatible transcription (via scribe) |
 
 ### Offline Cache
 
-Journal entries are cached locally via `JournalLocalCache` (SQLite). The `PendingEntryQueue` queues mutations when offline and flushes them when the server is reachable.
+All three tabs have offline fallback via `NoteLocalCache` (SQLite). Journal entries also use `PendingEntryQueue` to queue mutations when offline and flush them on reconnect. Digest and Docs cache notes on fetch and read from cache when the server is unreachable.
 
 ## Conventions
 
