@@ -39,7 +39,7 @@ class TagService {
   Map<String, String> get _headers => {
         'Content-Type': 'application/json',
         'User-Agent': 'Parachute/1.0',
-        if (apiKey != null && apiKey!.isNotEmpty) 'X-API-Key': apiKey!,
+        if (apiKey != null && apiKey!.isNotEmpty) 'Authorization': 'Bearer $apiKey',
       };
 
   /// Fetch all tags with usage counts.

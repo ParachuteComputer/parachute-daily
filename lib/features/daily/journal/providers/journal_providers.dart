@@ -27,9 +27,11 @@ final dailyApiServiceProvider = Provider<DailyApiService>((ref) {
   final baseUrl = urlAsync.valueOrNull ?? AppConfig.defaultServerUrl;
   final apiKeyAsync = ref.watch(apiKeyProvider);
   final apiKey = apiKeyAsync.valueOrNull;
+  final vaultName = ref.watch(vaultNameProvider).valueOrNull;
 
   final service = DailyApiService(
     baseUrl: baseUrl,
+    vaultName: vaultName,
     apiKey: apiKey,
     onReachabilityChanged: (reachable) {
       ref.read(serverReachableOverrideProvider.notifier).state = reachable;

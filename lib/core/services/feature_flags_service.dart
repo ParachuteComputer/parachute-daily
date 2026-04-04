@@ -12,7 +12,11 @@ class FeatureFlagsService {
   FeatureFlagsService._internal();
 
   static const String _omiEnabledKey = 'feature_omi_enabled';
-  static const String _aiServerUrlKey = 'feature_ai_server_url';
+  /// Canonical key — shared with ServerUrlNotifier in app_state_provider.dart.
+  static const String _aiServerUrlKey = 'parachute_server_url';
+
+  /// Legacy key — migrated to _aiServerUrlKey on first read.
+  static const String _legacyAiServerUrlKey = 'feature_ai_server_url';
 
   // Default values
   static const bool _defaultOmiEnabled = false;
@@ -38,11 +42,22 @@ class FeatureFlagsService {
     _omiEnabled = enabled;
   }
 
-  /// Get server URL
+  /// Get server URL. Migrates from legacy key on first read.
   Future<String> getAiServerUrl() async {
     if (_aiServerUrl != null) return _aiServerUrl!;
 
     final prefs = await SharedPreferences.getInstance();
+
+    // Migrate from legacy key if present
+    final legacyUrl = prefs.getString(_legacyAiServerUrlKey);
+    if (legacyUrl != null && legacyUrl != _defaultAiServerUrl) {
+      final canonicalUrl = prefs.getString(_aiServerUrlKey);
+      if (canonicalUrl == null) {
+        await prefs.setString(_aiServerUrlKey, legacyUrl);
+      }
+      await prefs.remove(_legacyAiServerUrlKey);
+    }
+
     _aiServerUrl = prefs.getString(_aiServerUrlKey) ?? _defaultAiServerUrl;
     return _aiServerUrl!;
   }

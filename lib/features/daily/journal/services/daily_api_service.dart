@@ -46,6 +46,7 @@ class ApiSearchResult {
 ///   Audio files     = Attachments on notes
 class DailyApiService {
   final String baseUrl;
+  final String? vaultName;
   final String? apiKey;
   final http.Client _client;
 
@@ -54,8 +55,16 @@ class DailyApiService {
 
   static const _timeout = Duration(seconds: 15);
 
-  DailyApiService({required this.baseUrl, this.apiKey, this.onReachabilityChanged})
+  DailyApiService({required this.baseUrl, this.vaultName, this.apiKey, this.onReachabilityChanged})
     : _client = http.Client();
+
+  /// API path prefix — `/api` for default vault, `/vaults/{name}/api` for named vault.
+  String get _apiPrefix {
+    if (vaultName != null && vaultName!.isNotEmpty) {
+      return '/vaults/$vaultName/api';
+    }
+    return '/api';
+  }
 
   Map<String, String> get _headers => {
     'Content-Type': 'application/json',
@@ -73,7 +82,7 @@ class DailyApiService {
   /// Returns `[]` when the server responds with no notes — authoritative empty.
   Future<List<Note>?> getNotes({required String date}) async {
     final nextDate = _nextDate(date);
-    final uri = Uri.parse('$baseUrl/api/notes').replace(
+    final uri = Uri.parse('$baseUrl$_apiPrefix/notes').replace(
       queryParameters: {
         'tag': 'daily',
         'date_from': '${date}T00:00:00.000Z',
@@ -109,7 +118,7 @@ class DailyApiService {
     required String content,
     List<String> tags = const ['daily'],
   }) async {
-    final uri = Uri.parse('$baseUrl/api/notes');
+    final uri = Uri.parse('$baseUrl$_apiPrefix/notes');
     debugPrint('[DailyApiService] POST $uri');
     try {
       final body = jsonEncode({
@@ -140,7 +149,7 @@ class DailyApiService {
     String noteId, {
     String? content,
   }) async {
-    final uri = Uri.parse('$baseUrl/api/notes/$noteId');
+    final uri = Uri.parse('$baseUrl$_apiPrefix/notes/$noteId');
     debugPrint('[DailyApiService] PATCH $uri');
     try {
       final patchBody = <String, dynamic>{};
@@ -167,7 +176,7 @@ class DailyApiService {
 
   /// Delete a note. Returns true on success (including 404 — already gone).
   Future<bool> deleteNote(String noteId) async {
-    final uri = Uri.parse('$baseUrl/api/notes/$noteId');
+    final uri = Uri.parse('$baseUrl$_apiPrefix/notes/$noteId');
     debugPrint('[DailyApiService] DELETE $uri');
     try {
       final response = await _client
@@ -195,7 +204,7 @@ class DailyApiService {
 
   /// Upload an audio file to the server.
   Future<String?> uploadAudio(File audioFile, {String? date}) async {
-    final uri = Uri.parse('$baseUrl/api/storage/upload');
+    final uri = Uri.parse('$baseUrl$_apiPrefix/storage/upload');
     debugPrint('[DailyApiService] POST $uri (audio upload)');
     try {
       final request = http.MultipartRequest('POST', uri)
@@ -251,7 +260,7 @@ class DailyApiService {
 
   /// Add an attachment to a note.
   Future<void> addAttachment(String noteId, String path, String mimeType) async {
-    final uri = Uri.parse('$baseUrl/api/notes/$noteId/attachments');
+    final uri = Uri.parse('$baseUrl$_apiPrefix/notes/$noteId/attachments');
     try {
       await _client.post(
         uri,
@@ -273,7 +282,7 @@ class DailyApiService {
     int limit = 30,
   }) async {
     if (query.trim().isEmpty) return [];
-    final uri = Uri.parse('$baseUrl/api/search').replace(
+    final uri = Uri.parse('$baseUrl$_apiPrefix/search').replace(
       queryParameters: {'q': query, 'tag': 'daily', 'limit': '$limit'},
     );
     debugPrint('[DailyApiService] GET $uri');
@@ -372,7 +381,7 @@ class DailyApiService {
 
   /// Alias for getNote by ID.
   Future<JournalEntry?> getEntry(String entryId) async {
-    final uri = Uri.parse('$baseUrl/api/notes/$entryId');
+    final uri = Uri.parse('$baseUrl$_apiPrefix/notes/$entryId');
     try {
       final response = await _client.get(uri, headers: _headers).timeout(_timeout);
       if (response.statusCode < 200 || response.statusCode >= 300) return null;
@@ -401,7 +410,7 @@ class DailyApiService {
   /// Fetch the first audio attachment path for a note.
   Future<String?> getAudioPath(String noteId) async {
     try {
-      final uri = Uri.parse('$baseUrl/api/notes/$noteId/attachments');
+      final uri = Uri.parse('$baseUrl$_apiPrefix/notes/$noteId/attachments');
       final response = await _client
           .get(uri, headers: _headers)
           .timeout(const Duration(seconds: 5));
