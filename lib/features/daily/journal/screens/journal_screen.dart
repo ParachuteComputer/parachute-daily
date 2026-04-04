@@ -804,7 +804,7 @@ class _JournalScreenState extends ConsumerState<JournalScreen> with WidgetsBindi
     }
 
     ref.read(journalScreenStateProvider.notifier).startTranscription(entry.id);
-    debugPrint('[JournalScreen] Re-transcribing entry ${entry.id} via external service');
+    debugPrint('[JournalScreen] Re-transcribing entry ${entry.id} via ${transcriptionService.baseUrl}');
 
     File? tempAudioFile;
     try {
@@ -816,6 +816,7 @@ class _JournalScreenState extends ConsumerState<JournalScreen> with WidgetsBindi
       if (!mounted) return;
 
       final transcript = await transcriptionService.transcribe(audioFile.path);
+      debugPrint('[JournalScreen] Transcription complete: ${transcript.length} chars');
       if (!mounted) return;
 
       if (transcript.isEmpty) {

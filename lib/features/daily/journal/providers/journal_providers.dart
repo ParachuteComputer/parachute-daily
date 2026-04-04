@@ -258,6 +258,7 @@ Future<void> _flushPendingOps(
       final serverNote = await api.createNote(
         content: note.content,
         tags: tags,
+        createdAt: note.createdAt,
       );
       if (serverNote != null) {
         if (resolvedAudioPath != null) {

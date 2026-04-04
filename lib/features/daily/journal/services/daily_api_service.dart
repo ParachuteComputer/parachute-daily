@@ -114,9 +114,13 @@ class DailyApiService {
   }
 
   /// Create a new note on the server.
+  ///
+  /// Pass [createdAt] to preserve the original creation time (e.g. when
+  /// flushing offline-created entries). If omitted, the server sets it.
   Future<Note?> createNote({
     required String content,
     List<String> tags = const ['daily'],
+    DateTime? createdAt,
   }) async {
     final uri = Uri.parse('$baseUrl$_apiPrefix/notes');
     debugPrint('[DailyApiService] POST $uri');
@@ -124,6 +128,7 @@ class DailyApiService {
       final body = jsonEncode({
         'content': content,
         'tags': tags,
+        if (createdAt != null) 'createdAt': createdAt.toIso8601String(),
       });
       final response = await _client
           .post(uri, headers: _headers, body: body)
@@ -337,7 +342,7 @@ class DailyApiService {
     final entryType = metadata?['type'] as String? ?? 'text';
     final tags = <String>['daily'];
     if (entryType == 'voice') tags.add('voice');
-    final note = await createNote(content: content, tags: tags);
+    final note = await createNote(content: content, tags: tags, createdAt: createdAt);
     if (note == null) return null;
     return _noteToEntry(note);
   }
