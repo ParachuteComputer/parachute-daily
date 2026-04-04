@@ -239,30 +239,46 @@ Future<void> _flushPendingOps(
     // Flush pending creates
     final pendingCreates = cache.getPendingCreates();
     for (final note in pendingCreates) {
-      final tags = note.tags.isNotEmpty ? note.tags : ['daily'];
       final audioPath = cache.getAudioPath(note.id);
+      final isVoice = note.hasTag('voice');
 
-      // Upload audio if it's a local file path
-      String? resolvedAudioPath = audioPath;
-      if (audioPath != null && audioPath.startsWith('/')) {
-        final serverPath = await api.uploadAudio(
-          File(audioPath),
-        );
-        if (serverPath == null) {
-          debugPrint('[FlushOps] Audio upload pending for ${note.id}');
-          continue; // Keep in queue
+      // Voice notes with local audio: use ingest endpoint (atomic)
+      if (isVoice && audioPath != null && audioPath.startsWith('/')) {
+        final audioFile = File(audioPath);
+        if (!await audioFile.exists()) {
+          debugPrint('[FlushOps] Audio file missing for ${note.id}, skipping');
+          continue;
         }
-        resolvedAudioPath = serverPath;
+
+        final serverNote = await api.ingestVoiceMemo(
+          audioFile: audioFile,
+          createdAt: note.createdAt,
+          durationSeconds: 0, // Duration not stored in pending note
+          transcribe: note.content.isEmpty, // Transcribe if no content yet
+        );
+
+        if (serverNote != null) {
+          cache.removeNote(note.id);
+          cache.putNotes([serverNote]);
+          try { await audioFile.delete(); } catch (_) {}
+          debugPrint('[FlushOps] Ingested ${note.id} → ${serverNote.id}');
+        } else {
+          debugPrint('[FlushOps] Ingest pending for ${note.id}');
+        }
+        continue;
       }
 
+      // Non-voice notes or notes with server audio paths: create directly
+      final tags = note.tags.isNotEmpty ? note.tags : ['daily'];
       final serverNote = await api.createNote(
         content: note.content,
         tags: tags,
         createdAt: note.createdAt,
       );
       if (serverNote != null) {
-        if (resolvedAudioPath != null) {
-          await api.addAttachment(serverNote.id, resolvedAudioPath, 'audio/wav');
+        if (audioPath != null && !audioPath.startsWith('/')) {
+          // Already a server path — just link the attachment
+          await api.addAttachment(serverNote.id, audioPath, 'audio/wav');
         }
         cache.removeNote(note.id);
         cache.putNotes([serverNote]);
