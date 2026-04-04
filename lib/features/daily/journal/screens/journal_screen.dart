@@ -172,8 +172,8 @@ class _JournalScreenState extends ConsumerState<JournalScreen> with WidgetsBindi
             if (isToday)
               JournalInputBar(
                 onTextSubmitted: (text) => _addTextEntry(text),
-                onVoiceRecorded: (transcript, audioPath, duration) =>
-                    _addVoiceEntry(transcript, audioPath, duration),
+                onVoiceRecorded: (transcript, audioPath, duration, createdAt) =>
+                    _addVoiceEntry(transcript, audioPath, duration, createdAt),
                 onTranscriptReady: (transcript) => _updatePendingTranscription(transcript),
                 onComposeSubmitted: (title, content) =>
                     _addComposeEntry(title, content),
@@ -484,74 +484,88 @@ class _JournalScreenState extends ConsumerState<JournalScreen> with WidgetsBindi
     ref.read(journalRefreshTriggerProvider.notifier).state++;
   }
 
-  Future<void> _addVoiceEntry(String transcript, String localAudioPath, int duration) async {
-    debugPrint('[JournalScreen] Adding voice entry via API...');
+  Future<void> _addVoiceEntry(String transcript, String localAudioPath, int duration, DateTime createdAt) async {
+    debugPrint('[JournalScreen] Adding voice entry (createdAt: $createdAt)...');
 
-    // Read mode once and decide whether to use server-side transcription
+    // Try ingest endpoint first (single atomic request — preferred for beta)
+    final api = ref.read(dailyApiServiceProvider);
     final mode = await ref.read(transcriptionModeProvider.future);
     if (!mounted) return;
 
-    final useServer = switch (mode) {
+    final useServerTranscription = switch (mode) {
       TranscriptionMode.local => false,
       TranscriptionMode.server => true,
       TranscriptionMode.auto => ref.read(serverTranscriptionAvailableProvider),
     };
 
-    if (useServer) {
-      final success = await _addVoiceEntryViaServer(localAudioPath, duration);
-      if (!mounted) return;
-      if (success) return;
+    // Try ingest (handles upload + note creation + transcription atomically)
+    final ingestResult = await api.ingestVoiceMemo(
+      audioFile: File(localAudioPath),
+      createdAt: createdAt,
+      durationSeconds: duration,
+      transcribe: useServerTranscription,
+    );
 
-      // Server-only mode: don't fall back, show error
-      if (mode == TranscriptionMode.server) {
-        _showErrorSnackbar('Server transcription unavailable');
-        // Still save the entry locally so the recording isn't lost
-        await _appendEntryToCache(
-          null,
-          content: transcript,
-          type: JournalEntryType.voice,
-          audioPath: localAudioPath,
-          durationSeconds: duration,
-        );
+    if (ingestResult != null && mounted) {
+      debugPrint('[JournalScreen] Ingest succeeded: ${ingestResult.id}, content: ${ingestResult.content.length} chars');
+
+      // Cache the entry (may have empty content if transcription is async)
+      final entry = JournalEntry(
+        id: ingestResult.id,
+        title: ingestResult.path ?? '',
+        content: ingestResult.content,
+        type: JournalEntryType.voice,
+        createdAt: ingestResult.createdAt,
+        audioPath: ingestResult.content.isEmpty ? localAudioPath : null,
+        durationSeconds: duration,
+      );
+      await _appendEntryToCache(
+        entry,
+        content: ingestResult.content,
+        type: JournalEntryType.voice,
+        audioPath: ingestResult.content.isEmpty ? localAudioPath : null,
+        durationSeconds: duration,
+      );
+
+      // If vault returned content (sync transcription), we're done
+      if (ingestResult.content.isNotEmpty) {
+        try { await File(localAudioPath).delete(); } catch (_) {}
         return;
       }
-      debugPrint('[JournalScreen] Server upload failed, falling back to local');
-    }
 
-    await _addVoiceEntryLocally(transcript, localAudioPath, duration);
-  }
-
-  /// Transcribe audio via external transcription service, then save entry. Returns true on success.
-  Future<bool> _addVoiceEntryViaServer(String localAudioPath, int duration) async {
-    final transcriptionService = ref.read(transcriptionApiServiceProvider);
-    if (transcriptionService == null) {
-      debugPrint('[JournalScreen] No transcription service configured');
-      return false;
-    }
-
-    debugPrint('[JournalScreen] Transcribing via external service...');
-    try {
-      final transcript = await transcriptionService.transcribe(localAudioPath);
-      if (!mounted) return false;
-
-      if (transcript.isEmpty) {
-        debugPrint('[JournalScreen] External transcription returned empty text');
-        return false;
+      // Vault returned empty content — transcription is async or unavailable.
+      // Transcribe client-side using the local audio file, then update the note.
+      debugPrint('[JournalScreen] Ingest returned empty content, transcribing client-side...');
+      final transcriptionService = ref.read(transcriptionApiServiceProvider);
+      if (transcriptionService != null && useServerTranscription) {
+        try {
+          final transcript = await transcriptionService.transcribe(localAudioPath);
+          if (transcript.isNotEmpty && mounted) {
+            await api.updateNote(ingestResult.id, content: transcript);
+            final updated = entry.copyWith(content: transcript);
+            if (_cachedJournal != null) {
+              setState(() {
+                _cachedJournal = _cachedJournal!.updateEntry(updated);
+              });
+            }
+            debugPrint('[JournalScreen] Client-side transcription complete: ${transcript.length} chars');
+          }
+        } catch (e) {
+          debugPrint('[JournalScreen] Client-side transcription failed: $e');
+        }
       }
 
-      debugPrint('[JournalScreen] External transcription complete: ${transcript.length} chars');
-
-      // Now save the entry using the local flow (upload audio to vault if online, create entry with transcript)
-      await _addVoiceEntryLocally(transcript, localAudioPath, duration);
-      return true;
-    } catch (e) {
-      debugPrint('[JournalScreen] External transcription failed: $e');
-      return false;
+      try { await File(localAudioPath).delete(); } catch (_) {}
+      return;
     }
+
+    // Ingest failed — fall back to local flow
+    debugPrint('[JournalScreen] Ingest failed, falling back to local');
+    await _addVoiceEntryLocally(transcript, localAudioPath, duration, createdAt);
   }
 
-  /// Original local flow: upload audio asset, create entry, let on-device transcription handle it.
-  Future<void> _addVoiceEntryLocally(String transcript, String localAudioPath, int duration) async {
+  /// Fallback local flow: upload audio asset, create entry, let on-device transcription handle it.
+  Future<void> _addVoiceEntryLocally(String transcript, String localAudioPath, int duration, DateTime createdAt) async {
     final api = ref.read(dailyApiServiceProvider);
 
     // Try to upload audio to server first
@@ -562,11 +576,11 @@ class _JournalScreenState extends ConsumerState<JournalScreen> with WidgetsBindi
       // Online: create entry with server audio path
       final entry = await api.createEntry(
         content: transcript,
+        createdAt: createdAt,
         metadata: {
           'type': 'voice',
           'audio_path': serverPath,
           'duration_seconds': duration,
-          // Mark as processing if content is empty (post-hoc transcription pending)
           if (transcript.isEmpty) 'transcription_status': 'processing',
         },
       );

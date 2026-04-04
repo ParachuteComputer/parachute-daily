@@ -11,11 +11,15 @@ class DailyRecordingState {
   final Duration duration;
   final String? audioPath;
 
+  /// When the recording started — used as createdAt for the journal entry.
+  final DateTime? startedAt;
+
   const DailyRecordingState({
     this.isRecording = false,
     this.isPaused = false,
     this.duration = Duration.zero,
     this.audioPath,
+    this.startedAt,
   });
 
   DailyRecordingState copyWith({
@@ -23,12 +27,14 @@ class DailyRecordingState {
     bool? isPaused,
     Duration? duration,
     String? audioPath,
+    DateTime? startedAt,
   }) {
     return DailyRecordingState(
       isRecording: isRecording ?? this.isRecording,
       isPaused: isPaused ?? this.isPaused,
       duration: duration ?? this.duration,
       audioPath: audioPath ?? this.audioPath,
+      startedAt: startedAt ?? this.startedAt,
     );
   }
 }
@@ -71,6 +77,7 @@ class DailyRecordingNotifier extends StateNotifier<DailyRecordingState> {
         isRecording: true,
         duration: Duration.zero,
         audioPath: null,
+        startedAt: DateTime.now(),
       );
 
       _startDurationTimer();

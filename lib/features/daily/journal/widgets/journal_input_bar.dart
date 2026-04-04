@@ -20,7 +20,7 @@ import 'package:parachute/features/settings/screens/settings_screen.dart';
 /// Uses streaming pattern: creates entry immediately, transcribes in background.
 class JournalInputBar extends ConsumerStatefulWidget {
   final Future<void> Function(String text) onTextSubmitted;
-  final Future<void> Function(String transcript, String audioPath, int duration)?
+  final Future<void> Function(String transcript, String audioPath, int duration, DateTime createdAt)?
       onVoiceRecorded;
   /// Called when background transcription completes - allows updating the entry
   final Future<void> Function(String transcript)? onTranscriptReady;
@@ -292,6 +292,9 @@ class _JournalInputBarState extends ConsumerState<JournalInputBar>
     });
 
     try {
+      // Capture recording start time before stopping (stop resets state)
+      final createdAt = ref.read(dailyRecordingProvider).startedAt ?? DateTime.now();
+
       final dailyNotifier = ref.read(dailyRecordingProvider.notifier);
       final audioPath = await dailyNotifier.stopRecording();
 
@@ -306,7 +309,7 @@ class _JournalInputBarState extends ConsumerState<JournalInputBar>
       // Create entry immediately with empty transcript — "processing" state
       // The entry appears in the list with a progress indicator
       if (widget.onVoiceRecorded != null) {
-        await widget.onVoiceRecorded!('', audioPath, durationSeconds);
+        await widget.onVoiceRecorded!('', audioPath, durationSeconds, createdAt);
       }
 
       // Get the entry ID that was just created
