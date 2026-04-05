@@ -83,43 +83,35 @@ class DailyApiService {
   /// Fetch notes for a specific date (YYYY-MM-DD).
   ///
   /// Queries for capture-type tags (spoken, typed, clipped) by default.
-  /// The vault doesn't support OR queries, so we query each tag separately
-  /// and merge + deduplicate the results.
+  /// Uses comma-separated OR query: `?tag=spoken,typed,clipped`.
   /// Returns `null` on network error — callers should fall back to cache.
   /// Returns `[]` when the server responds with no notes — authoritative empty.
   Future<List<Note>?> getNotes({required String date, String? tag}) async {
-    final tags = tag != null ? [tag] : captureTags;
     final nextDate = _nextDate(date);
-
+    final uri = Uri.parse('$baseUrl$_apiPrefix/notes').replace(
+      queryParameters: {
+        'tag': tag ?? captureTags.join(','),
+        'date_from': '${date}T00:00:00.000Z',
+        'date_to': '${nextDate}T00:00:00.000Z',
+        'limit': '100',
+      },
+    );
+    debugPrint('[DailyApiService] GET $uri');
     try {
-      final allNotes = <String, Note>{};
-      for (final t in tags) {
-        final uri = Uri.parse('$baseUrl$_apiPrefix/notes').replace(
-          queryParameters: {
-            'tag': t,
-            'date_from': '${date}T00:00:00.000Z',
-            'date_to': '${nextDate}T00:00:00.000Z',
-            'limit': '100',
-          },
-        );
-        final response = await _client
-            .get(uri, headers: _headers)
-            .timeout(_timeout);
+      final response = await _client
+          .get(uri, headers: _headers)
+          .timeout(_timeout);
 
-        if (response.statusCode >= 200 && response.statusCode < 300) {
-          onReachabilityChanged?.call(true);
-          final data = jsonDecode(response.body) as List<dynamic>;
-          for (final json in data) {
-            final note = Note.fromJson(json as Map<String, dynamic>);
-            allNotes[note.id] = note; // Deduplicate by ID
-          }
-        }
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        debugPrint('[DailyApiService] GET notes ${response.statusCode}');
+        return null;
       }
 
-      // Sort by createdAt descending
-      final result = allNotes.values.toList()
-        ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
-      return result;
+      onReachabilityChanged?.call(true);
+      final data = jsonDecode(response.body) as List<dynamic>;
+      return data
+          .map((json) => Note.fromJson(json as Map<String, dynamic>))
+          .toList();
     } catch (e) {
       debugPrint('[DailyApiService] getNotes error (offline?): $e');
       onReachabilityChanged?.call(false);
@@ -248,6 +240,7 @@ class DailyApiService {
       request.fields['created_at'] = createdAt.toIso8601String();
       request.fields['tags'] = 'spoken';
       request.fields['transcribe'] = transcribe.toString();
+      if (transcribe) request.fields['sync'] = 'true';
       request.fields['metadata'] = jsonEncode({
         'source': 'voice-memo',
         'duration_seconds': durationSeconds,
