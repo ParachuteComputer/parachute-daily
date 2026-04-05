@@ -25,17 +25,11 @@ class Note {
 
   // ---- Type checks ----
 
-  bool get isSpoken => hasTag('spoken');
-  bool get isTyped => hasTag('typed');
-  bool get isClipped => hasTag('clipped');
-  bool get isDoc => hasTag('doc');
+  bool get isCaptured => hasTag('captured');
   bool get isReader => hasTag('reader');
   bool get isView => hasTag('view');
   bool get isPinned => hasTag('pinned');
   bool get isArchived => hasTag('archived');
-
-  /// Whether this is a capture-type note (spoken, typed, or clipped).
-  bool get isCapture => isSpoken || isTyped || isClipped;
 
   // ---- Serialization ----
 

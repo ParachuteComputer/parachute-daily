@@ -143,7 +143,7 @@ class _SelectedJournalNotifier extends AutoDisposeAsyncNotifier<JournalDay> {
 /// This is the boundary between the v3 data model (Note + tags) and the
 /// Daily tab's specialized view model (JournalEntry with type, audio, etc.).
 JournalEntry _noteToEntry(Note note, {String? audioPath, bool isPending = false}) {
-  final isVoice = note.hasTag('spoken');
+  final isVoice = audioPath != null;
   return JournalEntry(
     id: note.id,
     title: note.path ?? '',
@@ -168,7 +168,7 @@ Future<JournalDay> _loadJournal(
   final cache = await ref.watch(noteLocalCacheProvider.future);
 
   // Phase 1 — serve from cache immediately (excludes pending_delete).
-  final cachedNotes = cache.getNotesForDate(dateStr, nextDateStr, tags: DailyApiService.captureTags);
+  final cachedNotes = cache.getNotesForDate(dateStr, nextDateStr, tags: [DailyApiService.captureTag]);
   if (cachedNotes.isNotEmpty) {
     final entries = cachedNotes.map((note) {
       final audioPath = cache.getAudioPath(note.id);
@@ -180,7 +180,7 @@ Future<JournalDay> _loadJournal(
   // Phase 2 — flush pending ops and fetch from server (only when online).
   final isAvailable = ref.watch(isServerAvailableProvider);
   if (!isAvailable) {
-    final freshNotes = cache.getNotesForDate(dateStr, nextDateStr, tags: DailyApiService.captureTags);
+    final freshNotes = cache.getNotesForDate(dateStr, nextDateStr, tags: [DailyApiService.captureTag]);
     final entries = freshNotes.map((note) {
       final audioPath = cache.getAudioPath(note.id);
       return _noteToEntry(note, audioPath: audioPath);
@@ -202,7 +202,7 @@ Future<JournalDay> _loadJournal(
         dateStr, nextDateStr, serverNotes.map((n) => n.id).toSet(),
       );
       // Fetch and cache audio paths for voice notes (parallel).
-      final voiceNotes = serverNotes.where((n) => n.isSpoken).toList();
+      final voiceNotes = serverNotes.where((n) => n.isCaptured).toList();
       if (voiceNotes.isNotEmpty) {
         final audioPaths = await Future.wait(
           voiceNotes.map((n) => api.getAudioPath(n.id)),
@@ -217,7 +217,7 @@ Future<JournalDay> _loadJournal(
   }
 
   // Re-read cache: merged truth.
-  final freshNotes = cache.getNotesForDate(dateStr, nextDateStr, tags: DailyApiService.captureTags);
+  final freshNotes = cache.getNotesForDate(dateStr, nextDateStr, tags: [DailyApiService.captureTag]);
   final entries = freshNotes.map((note) {
     final audioPath = cache.getAudioPath(note.id);
     return _noteToEntry(note, audioPath: audioPath);
@@ -240,10 +240,8 @@ Future<void> _flushPendingOps(
     final pendingCreates = cache.getPendingCreates();
     for (final note in pendingCreates) {
       final audioPath = cache.getAudioPath(note.id);
-      final isVoice = note.hasTag('spoken');
-
       // Voice notes with local audio: use ingest endpoint (atomic)
-      if (isVoice && audioPath != null && audioPath.startsWith('/')) {
+      if (audioPath != null && audioPath.startsWith('/')) {
         final audioFile = File(audioPath);
         if (!await audioFile.exists()) {
           debugPrint('[FlushOps] Audio file missing for ${note.id}, skipping');
@@ -269,7 +267,7 @@ Future<void> _flushPendingOps(
       }
 
       // Non-voice notes or notes with server audio paths: create directly
-      final tags = note.tags.isNotEmpty ? note.tags : ['typed'];
+      final tags = note.tags.isNotEmpty ? note.tags : ['captured'];
       final serverNote = await api.createNote(
         content: note.content,
         tags: tags,

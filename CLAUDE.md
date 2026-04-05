@@ -25,7 +25,7 @@ Three-tab layout: **Reader**, **Capture**, **Vault**.
 | Tab | Query | Description |
 |-----|-------|-------------|
 | **Reader** | `#reader NOT #archived` | Content to process — AI briefs, articles, digests |
-| **Capture** | `#spoken OR #typed OR #clipped`, grouped by date | Voice memos, typed thoughts, clipped quotes |
+| **Capture** | `#captured`, grouped by date | Voice memos, typed thoughts, clipped quotes |
 | **Vault** | Search + tag browser + saved views | Browse all notes, filter by tag, saved views |
 
 ## Directory Structure
@@ -81,23 +81,20 @@ Everything is a **Note**, differentiated by flat **Tags**:
 
 ### Built-in Tags
 
-**Content type (what it is):**
+**Content tags:**
 ```
-#spoken     — transcribed from voice
-#typed      — written by hand
-#clipped    — grabbed from elsewhere (quote, link, photo)
-#doc        — long-form document (blog draft, meeting notes, list)
+#captured   — user-created content (voice memos, typed notes, clips)
 #reader     — content to process (AI briefs, articles, digests)
 #view       — saved view definition (query + display config)
 ```
 
-**State (applies to any note):**
+**State tags (apply to any note):**
 ```
 #pinned     — kept prominent
 #archived   — user is done with this
 ```
 
-Tags are flat and composable. A note can have multiple tags. The Capture tab shows `#spoken`, `#typed`, `#clipped` grouped by date. The Reader tab shows `#reader`. The Vault tab shows everything via search and tag filtering. Tags use optional `/` hierarchy for sub-categories: `#doc/meeting`, `#reader/summary`.
+Tags are minimal and flat. Content type details (spoken vs typed vs clipped) live in note metadata (`metadata.source`), not tags. The Capture tab shows `#captured` grouped by date. The Reader tab shows `#reader`. The Vault tab shows everything via search and tag filtering. Tags use optional `/` hierarchy for sub-categories: `#reader/summary`.
 
 ### Server API
 

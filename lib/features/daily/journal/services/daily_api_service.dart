@@ -77,8 +77,8 @@ class DailyApiService {
   // Journal Entry CRUD — backed by Notes tagged "daily"
   // ===========================================================================
 
-  /// Tags that represent capture-type notes (shown in the Capture tab).
-  static const captureTags = ['spoken', 'typed', 'clipped'];
+  /// Tag for capture-type notes (shown in the Capture tab).
+  static const captureTag = 'captured';
 
   /// Fetch notes for a specific date (YYYY-MM-DD).
   ///
@@ -90,7 +90,7 @@ class DailyApiService {
     final nextDate = _nextDate(date);
     final uri = Uri.parse('$baseUrl$_apiPrefix/notes').replace(
       queryParameters: {
-        'tag': tag ?? captureTags.join(','),
+        'tag': tag ?? captureTag,
         'date_from': '${date}T00:00:00.000Z',
         'date_to': '${nextDate}T00:00:00.000Z',
         'limit': '100',
@@ -125,7 +125,7 @@ class DailyApiService {
   /// flushing offline-created entries). If omitted, the server sets it.
   Future<Note?> createNote({
     required String content,
-    List<String> tags = const ['typed'],
+    List<String> tags = const ['captured'],
     DateTime? createdAt,
   }) async {
     final uri = Uri.parse('$baseUrl$_apiPrefix/notes');
@@ -238,7 +238,7 @@ class DailyApiService {
 
       // Fields
       request.fields['created_at'] = createdAt.toIso8601String();
-      request.fields['tags'] = 'spoken';
+      request.fields['tags'] = 'captured';
       request.fields['transcribe'] = transcribe.toString();
       if (transcribe) request.fields['sync'] = 'true';
       request.fields['metadata'] = jsonEncode({
@@ -323,7 +323,7 @@ class DailyApiService {
     // Create a note tagged daily + voice
     final note = await createNote(
       content: '',
-      tags: ['spoken'],
+      tags: ['captured'],
     );
 
     // Attach the audio file to the note
@@ -396,9 +396,7 @@ class DailyApiService {
     final entries = <JournalEntry>[];
     for (final note in notes) {
       String? audioPath;
-      if (note.isSpoken) {
-        audioPath = await getAudioPath(note.id);
-      }
+      audioPath = await getAudioPath(note.id);
       entries.add(_noteToEntry(note, audioPath: audioPath));
     }
     return entries;
@@ -410,8 +408,7 @@ class DailyApiService {
     Map<String, dynamic>? metadata,
     DateTime? createdAt,
   }) async {
-    final entryType = metadata?['type'] as String? ?? 'text';
-    final tags = <String>[entryType == 'voice' ? 'spoken' : 'typed'];
+    final tags = <String>['captured'];
     final note = await createNote(content: content, tags: tags, createdAt: createdAt);
     if (note == null) return null;
     return _noteToEntry(note);
@@ -469,7 +466,7 @@ class DailyApiService {
   }
 
   static JournalEntry _noteToEntry(Note note, {String? audioPath}) {
-    final isVoice = note.hasTag('spoken');
+    final isVoice = audioPath != null;
     return JournalEntry(
       id: note.id,
       title: note.path ?? '',
