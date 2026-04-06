@@ -253,7 +253,7 @@ class _EntryDetailScreenState extends ConsumerState<EntryDetailScreen> {
         icon: const Icon(Icons.arrow_back),
         onPressed: () async {
           final shouldPop = await _onWillPop();
-          if (shouldPop && context.mounted) {
+          if (shouldPop && mounted) {
             Navigator.of(context).pop();
           }
         },
