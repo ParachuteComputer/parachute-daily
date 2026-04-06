@@ -52,8 +52,11 @@ class TagService {
         debugPrint('[TagService] listTags ${response.statusCode}');
         return [];
       }
-      final decoded = jsonDecode(response.body) as Map<String, dynamic>;
-      final List<dynamic> data = decoded['tags'] as List<dynamic>? ?? [];
+      final decoded = jsonDecode(response.body);
+      // API returns a raw list: [{"name": "tag", "count": 5}, ...]
+      final List<dynamic> data = decoded is List
+          ? decoded
+          : (decoded as Map<String, dynamic>)['tags'] as List<dynamic>? ?? [];
       return data
           .map((j) => TagInfo.fromJson(j as Map<String, dynamic>))
           .toList();
@@ -121,7 +124,7 @@ class TagInfo {
 
   factory TagInfo.fromJson(Map<String, dynamic> json) {
     return TagInfo(
-      tag: json['tag'] as String? ?? '',
+      tag: json['name'] as String? ?? json['tag'] as String? ?? '',
       description: json['description'] as String? ?? '',
       count: (json['count'] as num?)?.toInt() ?? 0,
     );
