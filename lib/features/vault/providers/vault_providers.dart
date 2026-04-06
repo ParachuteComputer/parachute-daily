@@ -12,9 +12,6 @@ final vaultRefreshTriggerProvider = StateProvider<int>((ref) => 0);
 /// Search query for the vault tab.
 final vaultSearchQueryProvider = StateProvider<String>((ref) => '');
 
-/// Active tag filter (null = show all).
-final vaultTagFilterProvider = StateProvider<String?>((ref) => null);
-
 /// Fetch all tags with counts from the server.
 final vaultTagsProvider = FutureProvider.autoDispose<List<TagInfo>>((ref) async {
   ref.watch(vaultRefreshTriggerProvider);
@@ -32,18 +29,12 @@ final vaultSearchProvider = FutureProvider.autoDispose<List<Note>?>((ref) async 
   return api.searchNotes(query);
 });
 
-/// Browse notes filtered by tag. Shows recent notes when no tag is selected.
-final vaultNotesProvider = FutureProvider.autoDispose<List<Note>>((ref) async {
+/// Recent notes across all tags (dashboard view).
+final vaultRecentNotesProvider = FutureProvider.autoDispose<List<Note>>((ref) async {
   ref.watch(vaultRefreshTriggerProvider);
   await ref.watch(aiServerUrlProvider.future);
   final api = ref.watch(graphApiServiceProvider);
-  final tagFilter = ref.watch(vaultTagFilterProvider);
-
-  final notes = await api.queryNotes(
-    tag: tagFilter,
-    sort: 'desc',
-    limit: 50,
-  );
+  final notes = await api.queryNotes(sort: 'desc', limit: 15);
 
   if (notes != null) {
     try {
@@ -55,15 +46,25 @@ final vaultNotesProvider = FutureProvider.autoDispose<List<Note>>((ref) async {
     return notes;
   }
 
-  // Offline fallback
-  try {
-    final cache = await ref.read(noteLocalCacheProvider.future);
-    if (tagFilter != null) {
-      return cache.getNotesWithTag(tagFilter);
-    }
-    return [];
-  } catch (e) {
-    debugPrint('[VaultProviders] Cache read failed: $e');
-    return [];
-  }
+  return [];
+});
+
+/// Notes filtered by a specific tag.
+final vaultTagNotesProvider =
+    FutureProvider.autoDispose.family<List<Note>, String>((ref, tag) async {
+  ref.watch(vaultRefreshTriggerProvider);
+  await ref.watch(aiServerUrlProvider.future);
+  final api = ref.watch(graphApiServiceProvider);
+  final notes = await api.queryNotes(tag: tag, sort: 'desc', limit: 100);
+  return notes ?? [];
+});
+
+/// Total note count (sum of all tag counts).
+final vaultTotalCountProvider = Provider<int>((ref) {
+  final tagsAsync = ref.watch(vaultTagsProvider);
+  final tags = tagsAsync.valueOrNull;
+  if (tags == null) return 0;
+  // Use max of any single tag count as a lower bound
+  // (notes can have multiple tags, so summing overcounts)
+  return tags.fold<int>(0, (max, t) => t.count > max ? t.count : max);
 });
