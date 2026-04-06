@@ -34,14 +34,15 @@ class Note {
   // ---- Serialization ----
 
   factory Note.fromJson(Map<String, dynamic> json) {
+    final now = DateTime.now();
+    final createdRaw = json['createdAt'] as String?;
+    final updatedRaw = json['updatedAt'] as String?;
     return Note(
       id: json['id'] as String,
       content: json['content'] as String? ?? '',
       path: json['path'] as String?,
-      createdAt: DateTime.parse(json['createdAt'] as String),
-      updatedAt: json['updatedAt'] != null
-          ? DateTime.parse(json['updatedAt'] as String)
-          : null,
+      createdAt: (createdRaw != null ? DateTime.tryParse(createdRaw) : null) ?? now,
+      updatedAt: updatedRaw != null ? DateTime.tryParse(updatedRaw) : null,
       tags: (json['tags'] as List<dynamic>?)
               ?.map((t) => t as String)
               .toList() ??
