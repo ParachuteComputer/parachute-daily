@@ -9,7 +9,12 @@ import '../providers/digest_providers.dart';
 /// Reader tab — inbox of content to process.
 ///
 /// Shows notes tagged #reader. Pinned items float to top, grouped by sub-tag.
-/// Archive toggle in header. Swipe to archive/unarchive, long-press to pin.
+/// Archive toggle in header.
+///
+/// Gestures per card:
+/// - Swipe left: archive (or unarchive) — with undo snackbar
+/// - Swipe right: pin (or unpin) — in-place, no dismiss
+/// - More menu (⋯): explicit Pin / Archive actions for discoverability
 class DigestScreen extends ConsumerStatefulWidget {
   const DigestScreen({super.key});
 
@@ -142,20 +147,20 @@ class _DigestScreenState extends ConsumerState<DigestScreen> {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(
-              Icons.auto_awesome,
+              showArchived ? Icons.inventory_2_outlined : Icons.inbox_outlined,
               size: 48,
               color: theme.colorScheme.outline,
             ),
             const SizedBox(height: 16),
             Text(
-              showArchived ? 'Nothing here' : 'Nothing to read yet',
+              showArchived ? 'No archived items' : 'Inbox zero',
               style: theme.textTheme.headlineSmall,
             ),
             const SizedBox(height: 8),
             Text(
               showArchived
-                  ? 'Archived digests will appear here.'
-                  : 'Content to read and process will appear here.',
+                  ? 'Archived reader items will appear here.'
+                  : 'Content to read and process will show up here.',
               textAlign: TextAlign.center,
               style: theme.textTheme.bodyMedium?.copyWith(
                 color: theme.colorScheme.outline,
@@ -184,7 +189,7 @@ class _DigestScreenState extends ConsumerState<DigestScreen> {
             Icon(Icons.cloud_off, size: 48, color: BrandColors.error),
             const SizedBox(height: 16),
             Text(
-              'Could not load digests',
+              'Could not load reader',
               style: theme.textTheme.titleMedium,
             ),
             const SizedBox(height: 8),
@@ -229,31 +234,43 @@ class _DigestCard extends ConsumerWidget {
     final preview = _smartTruncate(note.content, 150);
     final date = note.updatedAt ?? note.createdAt;
     final isArchived = note.isArchived;
+    final isPinned = note.isPinned;
 
     return Dismissible(
       key: ValueKey(note.id),
-      direction: DismissDirection.endToStart,
+      direction: DismissDirection.horizontal,
+      // Swipe-left: archive (or unarchive). Swipe-right: pin toggle.
       background: Container(
+        alignment: Alignment.centerLeft,
+        padding: const EdgeInsets.only(left: 20),
+        color: isPinned ? BrandColors.driftwood : BrandColors.turquoise,
+        child: Icon(
+          isPinned ? Icons.push_pin_outlined : Icons.push_pin,
+          color: Colors.white,
+        ),
+      ),
+      secondaryBackground: Container(
         alignment: Alignment.centerRight,
         padding: const EdgeInsets.only(right: 20),
-        color: isArchived ? BrandColors.turquoise : BrandColors.forest,
+        color: isArchived ? BrandColors.forestLight : BrandColors.forest,
         child: Icon(
           isArchived ? Icons.unarchive_outlined : Icons.archive_outlined,
           color: Colors.white,
         ),
       ),
-      onDismissed: (_) async {
-        final api = ref.read(graphApiServiceProvider);
-        if (isArchived) {
-          await api.untagNote(note.id, ['archived']);
-        } else {
-          await api.tagNote(note.id, ['archived']);
+      confirmDismiss: (direction) async {
+        if (direction == DismissDirection.startToEnd) {
+          // Pin/unpin — toggle in place, don't dismiss.
+          await _togglePin(ref);
+          return false;
         }
-        onChanged();
+        // Archive/unarchive — dismiss and show undo.
+        return true;
       },
-      child: GestureDetector(
-        onLongPress: () => _togglePin(ref),
-        child: Container(
+      onDismissed: (_) async {
+        await _toggleArchive(context, ref);
+      },
+      child: Container(
           margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
           decoration: BoxDecoration(
             color: isDark ? BrandColors.nightSurface : BrandColors.softWhite,
@@ -332,6 +349,7 @@ class _DigestCard extends ConsumerWidget {
                                 : BrandColors.driftwood,
                           ),
                         ),
+                        _buildMenuButton(context, ref, isDark),
                       ],
                     ),
                     // Title
@@ -368,6 +386,60 @@ class _DigestCard extends ConsumerWidget {
             ),
           ),
         ),
+    );
+  }
+
+  /// Three-dot menu with explicit Pin and Archive actions.
+  Widget _buildMenuButton(BuildContext context, WidgetRef ref, bool isDark) {
+    final color = isDark
+        ? BrandColors.nightTextSecondary
+        : BrandColors.driftwood;
+    return SizedBox(
+      width: 28,
+      height: 24,
+      child: PopupMenuButton<String>(
+        padding: EdgeInsets.zero,
+        iconSize: 18,
+        icon: Icon(Icons.more_horiz, size: 18, color: color),
+        tooltip: 'More actions',
+        onSelected: (value) async {
+          switch (value) {
+            case 'pin':
+              await _togglePin(ref);
+            case 'archive':
+              await _toggleArchive(context, ref);
+          }
+        },
+        itemBuilder: (context) => [
+          PopupMenuItem(
+            value: 'pin',
+            child: Row(
+              children: [
+                Icon(
+                  note.isPinned ? Icons.push_pin : Icons.push_pin_outlined,
+                  size: 18,
+                ),
+                const SizedBox(width: 12),
+                Text(note.isPinned ? 'Unpin' : 'Pin'),
+              ],
+            ),
+          ),
+          PopupMenuItem(
+            value: 'archive',
+            child: Row(
+              children: [
+                Icon(
+                  note.isArchived
+                      ? Icons.unarchive_outlined
+                      : Icons.archive_outlined,
+                  size: 18,
+                ),
+                const SizedBox(width: 12),
+                Text(note.isArchived ? 'Unarchive' : 'Archive'),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -408,6 +480,41 @@ class _DigestCard extends ConsumerWidget {
       await api.tagNote(note.id, ['pinned']);
     }
     onChanged();
+  }
+
+  /// Toggle archive with an undo snackbar (primary path: swipe-left).
+  Future<void> _toggleArchive(BuildContext context, WidgetRef ref) async {
+    final api = ref.read(graphApiServiceProvider);
+    final wasArchived = note.isArchived;
+
+    if (wasArchived) {
+      await api.untagNote(note.id, ['archived']);
+    } else {
+      await api.tagNote(note.id, ['archived']);
+    }
+    onChanged();
+
+    if (!context.mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(wasArchived ? 'Unarchived' : 'Archived'),
+        duration: const Duration(seconds: 4),
+        behavior: SnackBarBehavior.floating,
+        action: SnackBarAction(
+          label: 'Undo',
+          onPressed: () async {
+            if (wasArchived) {
+              await api.tagNote(note.id, ['archived']);
+            } else {
+              await api.untagNote(note.id, ['archived']);
+            }
+            onChanged();
+          },
+        ),
+      ),
+    );
   }
 
   /// Truncate at a word boundary.

@@ -44,7 +44,7 @@ final digestNotesProvider = FutureProvider.autoDispose<List<Note>>((ref) async {
   try {
     final cache = await ref.read(noteLocalCacheProvider.future);
     final cached = cache.getNotesWithTag(
-      'digest',
+      'reader',
       excludeTag: showArchived ? null : 'archived',
     );
     return _sortDigestNotes(cached);
