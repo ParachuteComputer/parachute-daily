@@ -112,6 +112,8 @@ class _TodayJournalNotifier extends AutoDisposeAsyncNotifier<JournalDay> {
             final api = ref.read(dailyApiServiceProvider);
             final cache = await ref.read(noteLocalCacheProvider.future);
             await _flushPendingOps(api, cache);
+            // Refresh the journal and the pending banner to reflect flushed state.
+            ref.read(journalRefreshTriggerProvider.notifier).state++;
           } catch (e) {
             debugPrint('[_TodayJournalNotifier] Error flushing on reconnect: $e');
           }
@@ -313,7 +315,12 @@ String _nextDate(String date) => nextDate(date);
 // ============================================================================
 
 /// Count of notes pending sync (creates + edits + deletes).
+///
+/// Watches [journalRefreshTriggerProvider] so the banner updates immediately
+/// when a pending entry is inserted, flushed, or otherwise changes. Any code
+/// that mutates the cache should also bump the refresh trigger.
 final pendingSyncCountProvider = FutureProvider<int>((ref) async {
+  ref.watch(journalRefreshTriggerProvider);
   try {
     final cache = await ref.watch(noteLocalCacheProvider.future);
     return cache.getPendingCount();
