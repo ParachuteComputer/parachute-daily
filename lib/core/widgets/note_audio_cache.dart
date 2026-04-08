@@ -92,7 +92,7 @@ class NoteAudioCache {
       await file.writeAsBytes(bytes, flush: true);
       // Best-effort eviction — don't let a cleanup failure break playback.
       try {
-        _evictIfNeeded(dir);
+        await _evictIfNeeded(dir);
       } catch (e) {
         debugPrint('NoteAudioCache eviction error: $e');
       }
@@ -104,23 +104,22 @@ class NoteAudioCache {
   }
 
   /// If the cache directory exceeds [_maxBytes], delete oldest-mtime files
-  /// until it's under [_targetBytes]. Synchronous on purpose — the caller
-  /// wraps us in try/catch and we stay off the await path.
-  static void _evictIfNeeded(Directory dir) {
-    final entries = dir
-        .listSync(followLinks: false)
-        .whereType<File>()
-        .map((f) {
-          FileStat stat;
-          try {
-            stat = f.statSync();
-          } catch (_) {
-            return null;
-          }
-          return _CacheEntry(file: f, size: stat.size, mtime: stat.modified);
-        })
-        .whereType<_CacheEntry>()
-        .toList();
+  /// until it's under [_targetBytes]. Async so a large cache (hundreds of
+  /// files) doesn't jank the UI thread at write time. Best-effort: per-file
+  /// failures are caught and logged, never abort the pass.
+  static Future<void> _evictIfNeeded(Directory dir) async {
+    final raw = await dir.list(followLinks: false).toList();
+    final entries = <_CacheEntry>[];
+    for (final f in raw.whereType<File>()) {
+      try {
+        final stat = await f.stat();
+        entries.add(
+          _CacheEntry(file: f, size: stat.size, mtime: stat.modified),
+        );
+      } catch (e) {
+        debugPrint('NoteAudioCache evict stat failed: $e');
+      }
+    }
 
     var total = entries.fold<int>(0, (sum, e) => sum + e.size);
     if (total <= _maxBytes) return;
@@ -131,7 +130,7 @@ class NoteAudioCache {
     for (final entry in entries) {
       if (total <= _targetBytes) break;
       try {
-        entry.file.deleteSync();
+        await entry.file.delete();
         total -= entry.size;
       } catch (e) {
         debugPrint('NoteAudioCache evict delete failed: $e');

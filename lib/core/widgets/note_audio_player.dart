@@ -150,6 +150,11 @@ class _NoteAudioPlayerState extends ConsumerState<NoteAudioPlayer> {
               ?? audioAtt['created_at']
               ?? '')
           .toString();
+      // TODO: the `url_<hash>` + `'unknown'` fallback means that if an
+      // attachment ever arrives without an `id` or `createdAt`, regenerated
+      // versions of the same URL will serve stale cached bytes forever. The
+      // Parachute Vault API reliably supplies both today, but if the shape
+      // drifts, cache invalidation breaks silently. Reconsider if we hit it.
       final cacheKeyId = attachmentId.isNotEmpty
           ? attachmentId
           : 'url_${url.hashCode.toRadixString(36)}';
