@@ -490,19 +490,19 @@ class _JournalScreenState extends ConsumerState<JournalScreen> with WidgetsBindi
     final mode = await ref.read(transcriptionModeProvider.future);
     if (!mounted) return;
 
-    // For auto mode we must AWAIT a real reachability probe rather than
-    // synchronously reading `serverTranscriptionAvailableProvider`. That
-    // provider wraps a StreamProvider; on a cold read (nothing else in the
-    // app is watching it) its `valueOrNull` is null and it falls through to
-    // `false`, so auto mode would ship `transcribe: false` to the ingest
-    // endpoint and the server would store an empty note. Reading `.future`
-    // on the underlying stream provider subscribes and waits for the first
-    // real emission. See parachute-daily#70.
+    // For auto mode: read the cached reachability value from the stream
+    // provider without awaiting. If the stream has already emitted (e.g.
+    // the settings screen has the reachability chip open), we honor that.
+    // If cold (valueOrNull == null), default to `true` — optimistically
+    // try the server, and let the existing ingest-failure fallback handle
+    // the unreachable case by re-running `_addVoiceEntryLocally`. We used
+    // to `await .future` here, but that hung indefinitely on cold reads
+    // under some conditions. See parachute-daily#70 and the #71 follow-up.
     final useServerTranscription = switch (mode) {
       TranscriptionMode.local => false,
       TranscriptionMode.server => true,
       TranscriptionMode.auto =>
-        await ref.read(transcriptionServiceReachableProvider.future),
+        ref.read(transcriptionServiceReachableProvider).valueOrNull ?? true,
     };
     if (!mounted) return;
 
@@ -754,7 +754,8 @@ class _JournalScreenState extends ConsumerState<JournalScreen> with WidgetsBindi
     }
 
     // Respect transcription mode setting — same pattern as _addVoiceEntry.
-    // For auto, await the reachability probe (see note in _addVoiceEntry).
+    // For auto, read the cached reachability value without awaiting. See
+    // the note in _addVoiceEntry for the rationale.
     final mode = await ref.read(transcriptionModeProvider.future);
     if (!mounted) return;
 
@@ -762,7 +763,7 @@ class _JournalScreenState extends ConsumerState<JournalScreen> with WidgetsBindi
       TranscriptionMode.local => false,
       TranscriptionMode.server => true,
       TranscriptionMode.auto =>
-        await ref.read(transcriptionServiceReachableProvider.future),
+        ref.read(transcriptionServiceReachableProvider).valueOrNull ?? true,
     };
     if (!mounted) return;
 
