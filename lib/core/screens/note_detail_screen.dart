@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:parachute/core/models/thing.dart';
+import 'package:parachute/core/widgets/note_audio_player.dart';
 import 'package:parachute/core/widgets/tag_input.dart';
 import 'package:parachute/features/daily/journal/providers/journal_providers.dart';
 
@@ -183,6 +184,7 @@ class _NoteDetailScreenState extends ConsumerState<NoteDetailScreen> {
           ),
           const SizedBox(height: 12),
         ],
+        NoteAudioPlayer(note: widget.note),
         MarkdownBody(
           data: widget.note.content,
           selectable: true,
