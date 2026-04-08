@@ -8,7 +8,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:parachute/core/config/app_config.dart';
 import 'package:parachute/core/theme/design_tokens.dart';
 import 'package:parachute/core/providers/backend_health_provider.dart'
-    show serverTranscriptionAvailableProvider, transcriptionApiServiceProvider;
+    show transcriptionApiServiceProvider, transcriptionServiceReachableProvider;
 import 'package:parachute/core/providers/app_state_provider.dart' show apiKeyProvider;
 import 'package:parachute/core/providers/feature_flags_provider.dart' show aiServerUrlProvider;
 import 'package:parachute/core/providers/connectivity_provider.dart' show isServerAvailableProvider;
@@ -490,11 +490,21 @@ class _JournalScreenState extends ConsumerState<JournalScreen> with WidgetsBindi
     final mode = await ref.read(transcriptionModeProvider.future);
     if (!mounted) return;
 
+    // For auto mode we must AWAIT a real reachability probe rather than
+    // synchronously reading `serverTranscriptionAvailableProvider`. That
+    // provider wraps a StreamProvider; on a cold read (nothing else in the
+    // app is watching it) its `valueOrNull` is null and it falls through to
+    // `false`, so auto mode would ship `transcribe: false` to the ingest
+    // endpoint and the server would store an empty note. Reading `.future`
+    // on the underlying stream provider subscribes and waits for the first
+    // real emission. See parachute-daily#70.
     final useServerTranscription = switch (mode) {
       TranscriptionMode.local => false,
       TranscriptionMode.server => true,
-      TranscriptionMode.auto => ref.read(serverTranscriptionAvailableProvider),
+      TranscriptionMode.auto =>
+        await ref.read(transcriptionServiceReachableProvider.future),
     };
+    if (!mounted) return;
 
     // Try ingest (handles upload + note creation + transcription atomically)
     final ingestResult = await api.ingestVoiceMemo(
@@ -743,15 +753,18 @@ class _JournalScreenState extends ConsumerState<JournalScreen> with WidgetsBindi
       return;
     }
 
-    // Respect transcription mode setting — same pattern as _addVoiceEntry
+    // Respect transcription mode setting — same pattern as _addVoiceEntry.
+    // For auto, await the reachability probe (see note in _addVoiceEntry).
     final mode = await ref.read(transcriptionModeProvider.future);
     if (!mounted) return;
 
     final useServer = switch (mode) {
       TranscriptionMode.local => false,
       TranscriptionMode.server => true,
-      TranscriptionMode.auto => ref.read(serverTranscriptionAvailableProvider),
+      TranscriptionMode.auto =>
+        await ref.read(transcriptionServiceReachableProvider.future),
     };
+    if (!mounted) return;
 
     if (useServer) {
       await _retranscribeViaServer(entry, audioPath);

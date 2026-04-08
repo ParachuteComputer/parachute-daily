@@ -275,8 +275,18 @@ Future<void> _flushPendingOps(
       );
       if (serverNote != null) {
         if (audioPath != null && !audioPath.startsWith('/')) {
-          // Already a server path — just link the attachment
-          await api.addAttachment(serverNote.id, audioPath, 'audio/wav');
+          // Already a server path — just link the attachment. Infer mime
+          // from extension to avoid the audio/wav footgun after the Opus
+          // migration (#67); mirrors daily_api_service.dart:uploadVoiceNote.
+          final ext = audioPath.split('.').last.toLowerCase();
+          final mime = switch (ext) {
+            'ogg' || 'opus' => 'audio/ogg',
+            'wav' => 'audio/wav',
+            'mp3' => 'audio/mpeg',
+            'm4a' || 'mp4' => 'audio/mp4',
+            _ => 'audio/ogg',
+          };
+          await api.addAttachment(serverNote.id, audioPath, mime);
         }
         cache.removeNote(note.id);
         cache.putNotes([serverNote]);
