@@ -163,10 +163,12 @@ class AudioService {
 
   Future<String> _getRecordingPath(String recordingId) async {
     try {
-      // Use temp folder for recording-in-progress WAV files
-      // The final Opus file will be saved to captures folder by StorageService
+      // Use temp folder for recording-in-progress OGG Opus files.
+      // AudioEncoder.opus in the `record` package produces an OGG container
+      // with Opus audio, so we use the `.ogg` extension to match the
+      // server-side Opus-migrated assets (see parachute-vault#45).
       final fileSystem = FileSystemService.daily();
-      final path = await fileSystem.getRecordingTempPath();
+      final path = await fileSystem.getRecordingTempPath(extension: 'ogg');
       debugPrint('Generated temp recording path: $path');
       return path;
     } catch (e) {
@@ -227,11 +229,14 @@ class AudioService {
       await WakelockPlus.enable();
       debugPrint('Wakelock enabled');
 
-      // Start recording with WAV format (compatible with Parakeet)
+      // Start recording with OGG Opus format.
+      // Server-side storage was unified to Opus in parachute-vault#45;
+      // recording directly as Opus on-device matches that format so no
+      // transcoding is needed on upload.
       debugPrint('Starting recorder...');
       await _recorder.start(
         const RecordConfig(
-          encoder: AudioEncoder.wav,
+          encoder: AudioEncoder.opus,
           sampleRate: 16000, // 16kHz for Parakeet/Whisper
           numChannels: 1, // Mono
         ),
@@ -348,12 +353,6 @@ class AudioService {
   Future<bool> playRecording(String filePath) async {
     if (filePath.isEmpty) {
       debugPrint('Cannot play: empty file path');
-      return false;
-    }
-
-    // Opus files are no longer supported for playback
-    if (filePath.endsWith('.opus')) {
-      debugPrint('Cannot play opus file: $filePath (opus support removed)');
       return false;
     }
 

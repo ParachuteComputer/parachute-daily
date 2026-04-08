@@ -326,9 +326,20 @@ class DailyApiService {
       tags: ['captured'],
     );
 
-    // Attach the audio file to the note
+    // Attach the audio file to the note. Infer mime from the uploaded
+    // file extension so we don't hardcode audio/wav after the Opus
+    // migration — voice memos are .ogg now, older callers may pass
+    // other formats, and the server's storage layer already normalizes.
     if (note != null && audioPath.isNotEmpty) {
-      await addAttachment(note.id, audioPath, 'audio/wav');
+      final ext = audioPath.split('.').last.toLowerCase();
+      final mime = switch (ext) {
+        'ogg' || 'opus' => 'audio/ogg',
+        'wav' => 'audio/wav',
+        'mp3' => 'audio/mpeg',
+        'm4a' || 'mp4' => 'audio/mp4',
+        _ => 'audio/ogg',
+      };
+      await addAttachment(note.id, audioPath, mime);
     }
 
     return note;
