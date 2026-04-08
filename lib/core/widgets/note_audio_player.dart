@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
@@ -11,9 +10,9 @@ import 'package:parachute/core/providers/app_state_provider.dart'
 import 'package:parachute/core/providers/feature_flags_provider.dart'
     show aiServerUrlProvider;
 import 'package:parachute/core/theme/design_tokens.dart';
+import 'package:parachute/core/widgets/note_audio_cache.dart';
 import 'package:parachute/features/daily/journal/providers/journal_providers.dart';
 import 'package:parachute/features/daily/journal/utils/journal_helpers.dart';
-import 'package:path_provider/path_provider.dart';
 
 /// Inline audio player rendered on the note view when a note has an
 /// `audio/*` attachment.
@@ -53,7 +52,6 @@ class _NoteAudioPlayerState extends ConsumerState<NoteAudioPlayer> {
   bool _loading = true;
   String? _error;
   String? _audioUrl;
-  String? _tempFilePath;
 
   Duration _position = Duration.zero;
   Duration _duration = Duration.zero;
@@ -88,11 +86,10 @@ class _NoteAudioPlayerState extends ConsumerState<NoteAudioPlayer> {
     _durationSub?.cancel();
     _stateSub?.cancel();
     _player.dispose();
-    // Best-effort cleanup of the downloaded temp file.
-    final temp = _tempFilePath;
-    if (temp != null) {
-      unawaited(File(temp).delete().catchError((_) => File(temp)));
-    }
+    // Note: we intentionally do NOT delete the cached audio file on dispose.
+    // Files live in NoteAudioCache (applicationSupportDirectory) and persist
+    // across note opens so replay is instant. Eviction is handled by the
+    // cache itself via an LRU-by-mtime pass at write time.
     super.dispose();
   }
 
@@ -143,13 +140,43 @@ class _NoteAudioPlayerState extends ConsumerState<NoteAudioPlayer> {
       final apiKey = ref.read(apiKeyProvider).valueOrNull;
       final url = JournalHelpers.getAudioUrl(relPath, baseUrl);
 
-      // Download the audio via Dart HTTP into a temp file, then hand the
-      // local path to just_audio. Mirrors the pattern in AudioService:
-      // ExoPlayer/AVPlayer HTTP clients can hit platform networking
-      // restrictions (Android cleartext policy, macOS ATS) and
-      // AudioSource.uri(headers:) is unreliable on iOS/macOS for
+      // Cache identity: attachmentId + createdAt. If the server regenerates
+      // an audio attachment (e.g. tag-retriggered TTS hook), the createdAt
+      // changes and we fetch fresh; the old file stays until LRU evicts it.
+      // Fall back to URL hash if the attachment map is missing id/createdAt
+      // so we still cache *something* rather than re-downloading forever.
+      final attachmentId = (audioAtt['id'] ?? '').toString();
+      final createdAt = (audioAtt['createdAt']
+              ?? audioAtt['created_at']
+              ?? '')
+          .toString();
+      final cacheKeyId = attachmentId.isNotEmpty
+          ? attachmentId
+          : 'url_${url.hashCode.toRadixString(36)}';
+      final cacheKeyCreated = createdAt.isNotEmpty ? createdAt : 'unknown';
+      final ext = _extFromUrl(url);
+
+      // Cache hit? Skip the network entirely.
+      String? localPath = await NoteAudioCache.lookup(
+        attachmentId: cacheKeyId,
+        createdAt: cacheKeyCreated,
+        ext: ext,
+      );
+
+      // Cache miss — download the audio via Dart HTTP, write to cache,
+      // then hand the local path to just_audio. Mirrors the pattern in
+      // AudioService: ExoPlayer/AVPlayer HTTP clients can hit platform
+      // networking restrictions (Android cleartext policy, macOS ATS)
+      // and AudioSource.uri(headers:) is unreliable on iOS/macOS for
       // authenticated sources. Dart's http client bypasses all that.
-      final localPath = await _downloadToTemp(url, apiKey);
+      localPath ??= await _downloadAndCache(
+        url: url,
+        apiKey: apiKey,
+        attachmentId: cacheKeyId,
+        createdAt: cacheKeyCreated,
+        ext: ext,
+      );
+
       if (localPath == null) {
         if (!mounted) return;
         setState(() {
@@ -158,7 +185,6 @@ class _NoteAudioPlayerState extends ConsumerState<NoteAudioPlayer> {
         });
         return;
       }
-      _tempFilePath = localPath;
 
       await _player.setFilePath(localPath);
 
@@ -177,9 +203,15 @@ class _NoteAudioPlayerState extends ConsumerState<NoteAudioPlayer> {
     }
   }
 
-  /// Download an audio URL to a temp file for local playback. Returns the
-  /// absolute file path, or null on failure.
-  Future<String?> _downloadToTemp(String url, String? apiKey) async {
+  /// Download an audio URL and write it into the persistent note-audio cache.
+  /// Returns the absolute cached file path, or null on failure.
+  Future<String?> _downloadAndCache({
+    required String url,
+    required String? apiKey,
+    required String attachmentId,
+    required String createdAt,
+    required String ext,
+  }) async {
     try {
       final headers = <String, String>{};
       if (apiKey != null && apiKey.isNotEmpty) {
@@ -192,20 +224,23 @@ class _NoteAudioPlayerState extends ConsumerState<NoteAudioPlayer> {
         );
         return null;
       }
-      final tempDir = await getTemporaryDirectory();
-      final hash = url.hashCode.toRadixString(36);
-      final ext = () {
-        final last = url.split('?').first.split('.').last;
-        // Guard against paths without an extension.
-        return last.length <= 5 ? last : 'mp3';
-      }();
-      final file = File('${tempDir.path}/note_audio_$hash.$ext');
-      await file.writeAsBytes(response.bodyBytes);
-      return file.path;
+      return await NoteAudioCache.write(
+        attachmentId: attachmentId,
+        createdAt: createdAt,
+        ext: ext,
+        bytes: response.bodyBytes,
+      );
     } catch (e) {
       debugPrint('NoteAudioPlayer: download error: $e');
       return null;
     }
+  }
+
+  /// Pull a sensible file extension from the audio URL, guarding against
+  /// URLs without a recognizable extension.
+  static String _extFromUrl(String url) {
+    final last = url.split('?').first.split('.').last;
+    return last.length <= 5 ? last : 'mp3';
   }
 
   Future<void> _togglePlay() async {
