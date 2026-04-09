@@ -287,6 +287,22 @@ class PostHocTranscriptionNotifier extends StateNotifier<PostHocTranscriptionSta
       _progressSubscription = null;
       _service?.dispose();
       _service = null;
+
+      // Clean up the staged audio file regardless of outcome. Safe because
+      // the server has its own copy (ingest or uploadAudio stored it before
+      // enqueue) — manual re-transcribe can pull the audio back from the
+      // server if the user wants to retry after a permanent failure. Only
+      // the crash-recovery path may leave files behind; `restartIncompleteJobs`
+      // already handles missing-file cases gracefully.
+      try {
+        final staged = File(audioPath);
+        if (await staged.exists()) {
+          await staged.delete();
+          debugPrint('[PostHocTranscription] Cleaned up staged audio: $audioPath');
+        }
+      } catch (e) {
+        debugPrint('[PostHocTranscription] Failed to clean up staged audio: $e');
+      }
     }
   }
 

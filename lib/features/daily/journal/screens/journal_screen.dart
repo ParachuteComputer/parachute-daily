@@ -15,6 +15,7 @@ import 'package:parachute/core/providers/connectivity_provider.dart' show isServ
 import 'package:parachute/core/models/thing.dart';
 import 'package:parachute/core/services/note_local_cache.dart';
 import 'package:parachute/core/services/tag_service.dart' show TagInfo, tagServiceProvider;
+import '../../recorder/providers/post_hoc_transcription_provider.dart';
 import '../../recorder/providers/service_providers.dart';
 import '../models/entry_metadata.dart' show TranscriptionStatus;
 import '../models/journal_day.dart';
@@ -517,24 +518,52 @@ class _JournalScreenState extends ConsumerState<JournalScreen> with WidgetsBindi
     if (ingestResult != null && mounted) {
       debugPrint('[JournalScreen] Ingest succeeded: ${ingestResult.id}, content: ${ingestResult.content.length} chars');
 
-      // Clean up local audio — server has it now
-      try { await File(localAudioPath).delete(); } catch (_) {}
-
       // Force a full refresh from server — the note is there now.
       // Don't use _appendEntryToCache because the sync ingest takes long enough
       // that the journal state may have changed while we were waiting.
       ref.invalidate(selectedJournalProvider);
       ref.read(journalRefreshTriggerProvider.notifier).state++;
+
+      if (!useServerTranscription) {
+        // Server stored the audio with empty content (transcribe: false).
+        // Kick off on-device transcription via the post-hoc queue — it'll
+        // PATCH the entry with the transcript when complete and clean up
+        // the staged audio file. Fires for TranscriptionMode.local AND for
+        // auto-mode when the transcription service is unreachable.
+        // See parachute-daily#72.
+        debugPrint('[JournalScreen] Enqueuing on-device transcription for ${ingestResult.id}');
+        ref.read(postHocTranscriptionProvider.notifier).enqueue(
+          entryId: ingestResult.id,
+          audioPath: localAudioPath,
+          durationSeconds: duration,
+        );
+      } else {
+        // Server did the transcription atomically — safe to clean up now.
+        try { await File(localAudioPath).delete(); } catch (_) {}
+      }
       return;
     }
 
-    // Ingest failed — fall back to local flow
+    // Ingest failed — fall back to local flow. Thread through the mode flag
+    // so the fallback can also enqueue on-device transcription when needed.
     debugPrint('[JournalScreen] Ingest failed, falling back to local');
-    await _addVoiceEntryLocally(transcript, localAudioPath, duration, createdAt);
+    await _addVoiceEntryLocally(
+      transcript,
+      localAudioPath,
+      duration,
+      createdAt,
+      useServerTranscription: useServerTranscription,
+    );
   }
 
   /// Fallback local flow: upload audio asset, create entry, let on-device transcription handle it.
-  Future<void> _addVoiceEntryLocally(String transcript, String localAudioPath, int duration, DateTime createdAt) async {
+  Future<void> _addVoiceEntryLocally(
+    String transcript,
+    String localAudioPath,
+    int duration,
+    DateTime createdAt, {
+    required bool useServerTranscription,
+  }) async {
     final api = ref.read(dailyApiServiceProvider);
 
     // Try to upload audio to server first
@@ -564,10 +593,25 @@ class _JournalScreenState extends ConsumerState<JournalScreen> with WidgetsBindi
           audioPath: serverPath,
           durationSeconds: duration,
         );
-        try {
-          await File(localAudioPath).delete();
-        } catch (e) {
-          debugPrint('[JournalScreen] Failed to delete staged audio: $e');
+
+        if (!useServerTranscription) {
+          // Vault server is reachable enough for ingest fallback to upload
+          // and create the entry, but the user wants on-device transcription
+          // (local mode) or the transcription service is unreachable (auto
+          // falling back). Enqueue post-hoc — it owns the staged file lifecycle.
+          // See parachute-daily#72.
+          debugPrint('[JournalScreen] Enqueuing on-device transcription for ${entry.id} (fallback path)');
+          ref.read(postHocTranscriptionProvider.notifier).enqueue(
+            entryId: entry.id,
+            audioPath: localAudioPath,
+            durationSeconds: duration,
+          );
+        } else {
+          try {
+            await File(localAudioPath).delete();
+          } catch (e) {
+            debugPrint('[JournalScreen] Failed to delete staged audio: $e');
+          }
         }
       } else {
         // Upload succeeded but entry creation failed — queue with server path so audio
@@ -680,6 +724,11 @@ class _JournalScreenState extends ConsumerState<JournalScreen> with WidgetsBindi
     }
   }
 
+  // TODO(parachute-daily#78): this method and its `pendingTranscriptionEntryId`
+  // lookup appear to be orphaned wiring from the pre-ingest era (commit 17dcfec).
+  // `setPendingTranscription(entryId)` is never called with a non-null id
+  // anywhere in the codebase, so `entryId` is always null and this method
+  // is effectively dead. Investigate and remove.
   Future<void> _updatePendingTranscription(String transcript) async {
     final screenState = ref.read(journalScreenStateProvider);
     final entryId = screenState.pendingTranscriptionEntryId;

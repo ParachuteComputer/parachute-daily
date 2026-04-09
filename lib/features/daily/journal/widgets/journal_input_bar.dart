@@ -7,10 +7,8 @@ import 'package:parachute/core/theme/design_tokens.dart';
 import 'package:parachute/core/providers/model_download_provider.dart';
 import '../../recorder/providers/service_providers.dart';
 import '../screens/entry_detail_screen.dart';
-import '../providers/journal_screen_state_provider.dart';
 import '../../recorder/providers/transcription_progress_provider.dart';
 import '../../recorder/providers/daily_recording_provider.dart';
-import '../../recorder/providers/post_hoc_transcription_provider.dart';
 import '../../recorder/widgets/recording_waveform.dart';
 import 'package:parachute/features/settings/screens/settings_screen.dart';
 
@@ -306,28 +304,16 @@ class _JournalInputBarState extends ConsumerState<JournalInputBar>
 
       debugPrint('[JournalInputBar] Daily recording stopped, audio at: $audioPath');
 
-      // Create entry immediately with empty transcript — "processing" state
-      // The entry appears in the list with a progress indicator
+      // Hand the recording off to the screen. JournalScreen's
+      // `_addVoiceEntry` handles ingest + on-device transcription enqueue
+      // (post-hoc) when the server isn't doing transcription itself. It
+      // has access to the entry id returned from ingest, which this widget
+      // does not. See parachute-daily#72 for the flow fix and #78 for the
+      // orphaned `pendingTranscriptionEntryId` wiring this block used to
+      // read from.
       if (widget.onVoiceRecorded != null) {
         await widget.onVoiceRecorded!('', audioPath, durationSeconds, createdAt);
       }
-
-      // Get the entry ID that was just created
-      final entryId = ref.read(journalScreenStateProvider).pendingTranscriptionEntryId;
-
-      if (entryId != null) {
-        // Enqueue post-hoc transcription — the provider handles everything:
-        // tracking, transcription, updating entry, failure/retry
-        ref.read(postHocTranscriptionProvider.notifier).enqueue(
-          entryId: entryId,
-          audioPath: audioPath,
-          durationSeconds: durationSeconds,
-        );
-        debugPrint('[JournalInputBar] Enqueued post-hoc transcription for $entryId');
-      } else {
-        debugPrint('[JournalInputBar] Warning: no entry ID after creation, skipping transcription');
-      }
-
     } catch (e) {
       debugPrint('[JournalInputBar] Failed to process Daily recording: $e');
       if (mounted) {
