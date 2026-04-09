@@ -20,8 +20,6 @@ class JournalInputBar extends ConsumerStatefulWidget {
   final Future<void> Function(String text) onTextSubmitted;
   final Future<void> Function(String transcript, String audioPath, int duration, DateTime createdAt)?
       onVoiceRecorded;
-  /// Called when background transcription completes - allows updating the entry
-  final Future<void> Function(String transcript)? onTranscriptReady;
   /// Called when the full-screen compose screen saves an entry (title + content)
   final Future<void> Function(String title, String content)? onComposeSubmitted;
 
@@ -29,7 +27,6 @@ class JournalInputBar extends ConsumerStatefulWidget {
     super.key,
     required this.onTextSubmitted,
     this.onVoiceRecorded,
-    this.onTranscriptReady,
     this.onComposeSubmitted,
   });
 
@@ -308,9 +305,7 @@ class _JournalInputBarState extends ConsumerState<JournalInputBar>
       // `_addVoiceEntry` handles ingest + on-device transcription enqueue
       // (post-hoc) when the server isn't doing transcription itself. It
       // has access to the entry id returned from ingest, which this widget
-      // does not. See parachute-daily#72 for the flow fix and #78 for the
-      // orphaned `pendingTranscriptionEntryId` wiring this block used to
-      // read from.
+      // does not.
       if (widget.onVoiceRecorded != null) {
         await widget.onVoiceRecorded!('', audioPath, durationSeconds, createdAt);
       }
