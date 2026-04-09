@@ -83,9 +83,7 @@ class JournalEntryList extends ConsumerWidget {
                         audioPath: journal.getAudioPath(entry.id),
                         isEditing: isEditing,
                         saveState: isEditing ? currentSaveState : EntrySaveState.saved,
-                        // Show transcribing for both manual transcribe and background transcription
-                        isTranscribing: screenState.transcribingEntryIds.contains(entry.id) ||
-                            screenState.pendingTranscriptionEntryId == entry.id,
+                        isTranscribing: screenState.transcribingEntryIds.contains(entry.id),
                         transcriptionProgress: screenState.transcriptionProgress[entry.id] ?? 0.0,
                         isEnhancing: screenState.enhancingEntryIds.contains(entry.id),
                         enhancementProgress: screenState.enhancementProgress[entry.id],

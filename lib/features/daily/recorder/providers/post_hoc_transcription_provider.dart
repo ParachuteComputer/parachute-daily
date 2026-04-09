@@ -92,28 +92,6 @@ class PostHocTranscriptionNotifier extends StateNotifier<PostHocTranscriptionSta
     _processQueue();
   }
 
-  /// Retry a failed transcription
-  Future<void> retry(String entryId, String audioPath, int durationSeconds) async {
-    debugPrint('[PostHocTranscription] Retrying job for entry $entryId');
-
-    // Transition server status back to processing
-    try {
-      final api = _ref.read(dailyApiServiceProvider);
-      await api.updateEntry(
-        entryId,
-        metadata: {'transcription_status': 'processing'},
-      );
-    } catch (e) {
-      debugPrint('[PostHocTranscription] Failed to update server status for retry: $e');
-    }
-
-    await enqueue(
-      entryId: entryId,
-      audioPath: audioPath,
-      durationSeconds: durationSeconds,
-    );
-  }
-
   /// Check for incomplete jobs on app startup and restart them
   Future<void> restartIncompleteJobs() async {
     final incompleteJobs = await _tracker.getIncompleteJobs();

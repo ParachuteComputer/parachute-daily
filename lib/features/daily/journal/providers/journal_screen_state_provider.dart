@@ -20,16 +20,12 @@ class JournalScreenState {
   /// Enhancement status message per entry
   final Map<String, String> enhancementStatus;
 
-  /// Entry pending transcription (for streaming audio)
-  final String? pendingTranscriptionEntryId;
-
   const JournalScreenState({
     this.transcribingEntryIds = const {},
     this.transcriptionProgress = const {},
     this.enhancingEntryIds = const {},
     this.enhancementProgress = const {},
     this.enhancementStatus = const {},
-    this.pendingTranscriptionEntryId,
   });
 
   JournalScreenState copyWith({
@@ -38,8 +34,6 @@ class JournalScreenState {
     Set<String>? enhancingEntryIds,
     Map<String, double?>? enhancementProgress,
     Map<String, String>? enhancementStatus,
-    String? pendingTranscriptionEntryId,
-    bool clearPendingTranscription = false,
   }) {
     return JournalScreenState(
       transcribingEntryIds: transcribingEntryIds ?? this.transcribingEntryIds,
@@ -47,9 +41,6 @@ class JournalScreenState {
       enhancingEntryIds: enhancingEntryIds ?? this.enhancingEntryIds,
       enhancementProgress: enhancementProgress ?? this.enhancementProgress,
       enhancementStatus: enhancementStatus ?? this.enhancementStatus,
-      pendingTranscriptionEntryId: clearPendingTranscription
-          ? null
-          : (pendingTranscriptionEntryId ?? this.pendingTranscriptionEntryId),
     );
   }
 }
@@ -65,14 +56,6 @@ class JournalScreenStateNotifier extends StateNotifier<JournalScreenState> {
   void dispose() {
     _progressDebounceTimer?.cancel();
     super.dispose();
-  }
-
-  /// Set pending transcription entry ID
-  void setPendingTranscription(String? entryId) {
-    state = state.copyWith(
-      pendingTranscriptionEntryId: entryId,
-      clearPendingTranscription: entryId == null,
-    );
   }
 
   /// Start transcription for an entry

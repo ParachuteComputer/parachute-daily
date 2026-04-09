@@ -175,7 +175,6 @@ class _JournalScreenState extends ConsumerState<JournalScreen> with WidgetsBindi
                 onTextSubmitted: (text) => _addTextEntry(text),
                 onVoiceRecorded: (transcript, audioPath, duration, createdAt) =>
                     _addVoiceEntry(transcript, audioPath, duration, createdAt),
-                onTranscriptReady: (transcript) => _updatePendingTranscription(transcript),
                 onComposeSubmitted: (title, content) =>
                     _addComposeEntry(title, content),
               ),
@@ -317,19 +316,6 @@ class _JournalScreenState extends ConsumerState<JournalScreen> with WidgetsBindi
         }
       });
     }
-  }
-
-  // ========== Error Feedback ==========
-
-  void _showErrorSnackbar(String message) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: BrandColors.error,
-        duration: const Duration(seconds: 3),
-      ),
-    );
   }
 
   // ========== Entry CRUD Operations ==========
@@ -721,58 +707,6 @@ class _JournalScreenState extends ConsumerState<JournalScreen> with WidgetsBindi
       if (entry.isServerProcessing) {
         _startPollingEntry(entry.id);
       }
-    }
-  }
-
-  // TODO(parachute-daily#78): this method and its `pendingTranscriptionEntryId`
-  // lookup appear to be orphaned wiring from the pre-ingest era (commit 17dcfec).
-  // `setPendingTranscription(entryId)` is never called with a non-null id
-  // anywhere in the codebase, so `entryId` is always null and this method
-  // is effectively dead. Investigate and remove.
-  Future<void> _updatePendingTranscription(String transcript) async {
-    final screenState = ref.read(journalScreenStateProvider);
-    final entryId = screenState.pendingTranscriptionEntryId;
-
-    if (entryId == null) {
-      debugPrint('[JournalScreen] No pending entry to update');
-      return;
-    }
-
-    ref.read(journalScreenStateProvider.notifier).setPendingTranscription(null);
-    debugPrint('[JournalScreen] Updating entry $entryId with transcript...');
-
-    try {
-      final api = ref.read(dailyApiServiceProvider);
-      final existingEntry = _cachedJournal?.getEntry(entryId);
-
-      final serverUpdated = await api.updateEntry(entryId, content: transcript);
-      if (serverUpdated == null) throw Exception('Server unreachable');
-      debugPrint('[JournalScreen] Transcription update complete');
-
-      JournalEntry? updatedEntry;
-      if (existingEntry != null && _cachedJournal != null) {
-        updatedEntry = existingEntry.copyWith(content: transcript);
-        setState(() {
-          _cachedJournal = _cachedJournal!.updateEntry(updatedEntry!);
-        });
-      }
-
-      ref.invalidate(selectedJournalProvider);
-
-      // Auto-enhance if enabled
-      if (transcript.isNotEmpty) {
-        final autoEnhance = await ref.read(autoEnhanceProvider.future);
-        if (autoEnhance) {
-          debugPrint('[JournalScreen] Auto-enhancing transcription...');
-          await Future.delayed(const Duration(milliseconds: 100));
-          if (mounted && updatedEntry != null) {
-            _handleEnhance(updatedEntry);
-          }
-        }
-      }
-    } catch (e, st) {
-      debugPrint('[JournalScreen] Error updating transcription: $e\n$st');
-      _showErrorSnackbar('Voice note saved, but transcript update failed');
     }
   }
 
