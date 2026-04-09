@@ -405,7 +405,9 @@ class _NoteAudioPlayerState extends ConsumerState<NoteAudioPlayer> {
     final isDark = theme.brightness == Brightness.dark;
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+      // Padding matches the final player shell exactly so phase B → C
+      // transition has no layout jump.
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
         color: isDark
             ? BrandColors.nightSurfaceElevated
