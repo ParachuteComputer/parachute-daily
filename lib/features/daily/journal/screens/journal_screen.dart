@@ -483,9 +483,9 @@ class _JournalScreenState extends ConsumerState<JournalScreen> with WidgetsBindi
     // never block on it. If the stream has already emitted (e.g. settings
     // screen had the reachability chip open), we honor that; otherwise we
     // default to `true` and let the ingest-failure fallback below run
-    // `_addVoiceEntryLocally`, which post-#79 enqueues post-hoc on-device
-    // transcription via the recovery queue. Nothing is lost if the
-    // optimistic default is wrong. See parachute-daily#70 / #73 / #74.
+    // `_addVoiceEntryLocally`, which post-#79 enqueues on-device transcription
+    // via `postHocTranscriptionProvider`. Nothing is lost if the optimistic
+    // default is wrong. See parachute-daily#70 / #73 / #74.
     final useServerTranscription = switch (mode) {
       TranscriptionMode.local => false,
       TranscriptionMode.server => true,
@@ -739,8 +739,11 @@ class _JournalScreenState extends ConsumerState<JournalScreen> with WidgetsBindi
 
     // Respect transcription mode setting — same pattern as _addVoiceEntry.
     // The reachability probe is an optimization, not a gate; optimistic
-    // cached read with a `true` default, fall back on failure. See the
-    // note in _addVoiceEntry (and parachute-daily#74) for the full rationale.
+    // cached read with a `true` default. Unlike `_addVoiceEntry`, there's
+    // no automatic post-hoc fallback here — if `_retranscribeViaServer`
+    // fails the user sees an error snackbar and re-invokes manually. The
+    // manual-retry loop is the fallback. See the note in _addVoiceEntry
+    // (and parachute-daily#74) for the full probe rationale.
     final mode = await ref.read(transcriptionModeProvider.future);
     if (!mounted) return;
 
