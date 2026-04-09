@@ -31,6 +31,29 @@ import 'package:parachute/features/daily/journal/utils/journal_helpers.dart';
 /// - Attachment lookup fails
 /// - The note has no `audio/*` attachment
 /// - Server base URL or config isn't available yet
+///
+/// While an audio attachment has been found but is still downloading, renders
+/// a loading skeleton matching the final player's shell so the user sees that
+/// something is coming.
+enum _AudioPhase {
+  /// Between mount and attachment lookup — we don't know yet if there's audio.
+  /// Renders nothing; the vast majority of notes land here and stay hidden.
+  unknown,
+
+  /// Attachment list came back with no audio entry. Renders nothing.
+  noAudio,
+
+  /// Audio attachment identified, download (or cache read) in progress.
+  /// Renders the loading skeleton.
+  downloading,
+
+  /// Audio loaded into the player and ready to play. Renders full player.
+  ready,
+
+  /// Lookup or download failed. Renders nothing (matches prior behavior).
+  error,
+}
+
 class NoteAudioPlayer extends ConsumerStatefulWidget {
   final Note note;
 
@@ -49,9 +72,7 @@ class _NoteAudioPlayerState extends ConsumerState<NoteAudioPlayer> {
   StreamSubscription<Duration?>? _durationSub;
   StreamSubscription<PlayerState>? _stateSub;
 
-  bool _loading = true;
-  String? _error;
-  String? _audioUrl;
+  _AudioPhase _phase = _AudioPhase.unknown;
 
   Duration _position = Duration.zero;
   Duration _duration = Duration.zero;
@@ -100,10 +121,7 @@ class _NoteAudioPlayerState extends ConsumerState<NoteAudioPlayer> {
       if (!mounted) return;
 
       if (attachments == null || attachments.isEmpty) {
-        setState(() {
-          _loading = false;
-          _audioUrl = null;
-        });
+        setState(() => _phase = _AudioPhase.noAudio);
         return;
       }
 
@@ -119,21 +137,21 @@ class _NoteAudioPlayerState extends ConsumerState<NoteAudioPlayer> {
       }
 
       if (audioAtt == null) {
-        setState(() {
-          _loading = false;
-          _audioUrl = null;
-        });
+        setState(() => _phase = _AudioPhase.noAudio);
         return;
       }
 
       final relPath = audioAtt['path'] as String?;
       if (relPath == null || relPath.isEmpty) {
-        setState(() {
-          _loading = false;
-          _audioUrl = null;
-        });
+        setState(() => _phase = _AudioPhase.noAudio);
         return;
       }
+
+      // We now know there IS an audio attachment — flip to the downloading
+      // phase so the skeleton renders while we fetch (or cache-hit) the file.
+      // If the cache hit is instant, the skeleton may only flash for a single
+      // frame, which is fine.
+      setState(() => _phase = _AudioPhase.downloading);
 
       final baseUrl = ref.read(aiServerUrlProvider).valueOrNull
           ?? AppConfig.defaultServerUrl;
@@ -184,27 +202,18 @@ class _NoteAudioPlayerState extends ConsumerState<NoteAudioPlayer> {
 
       if (localPath == null) {
         if (!mounted) return;
-        setState(() {
-          _loading = false;
-          _audioUrl = null;
-        });
+        setState(() => _phase = _AudioPhase.error);
         return;
       }
 
       await _player.setFilePath(localPath);
 
       if (!mounted) return;
-      setState(() {
-        _loading = false;
-        _audioUrl = url;
-      });
+      setState(() => _phase = _AudioPhase.ready);
     } catch (e, st) {
       debugPrint('NoteAudioPlayer load error: $e\n$st');
       if (!mounted) return;
-      setState(() {
-        _loading = false;
-        _error = e.toString();
-      });
+      setState(() => _phase = _AudioPhase.error);
     }
   }
 
@@ -275,11 +284,18 @@ class _NoteAudioPlayerState extends ConsumerState<NoteAudioPlayer> {
 
   @override
   Widget build(BuildContext context) {
-    // While loading OR if there's no audio, render nothing. The vast
-    // majority of notes have no audio attachment — we don't want to
-    // flash a "Loading audio..." placeholder on every note open.
-    if (_loading || _audioUrl == null || _error != null) {
-      return const SizedBox.shrink();
+    // Phase A (unknown) / noAudio / error: render nothing. The vast majority
+    // of notes have no audio attachment — we don't want to flash a loading
+    // placeholder on every note open. This preserves the polish from PR #63.
+    switch (_phase) {
+      case _AudioPhase.unknown:
+      case _AudioPhase.noAudio:
+      case _AudioPhase.error:
+        return const SizedBox.shrink();
+      case _AudioPhase.downloading:
+        return _buildSkeleton(context);
+      case _AudioPhase.ready:
+        break;
     }
 
     final theme = Theme.of(context);
@@ -373,6 +389,50 @@ class _NoteAudioPlayerState extends ConsumerState<NoteAudioPlayer> {
                   ),
                 ),
               ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Phase B skeleton: same outer shell (turquoise border, padding, margin)
+  /// as the final player, with a small spinner and "Loading audio…" label.
+  /// Kept deliberately lightweight — this only shows while a download is in
+  /// flight, and after PR #75's on-disk cache most opens skip it entirely.
+  Widget _buildSkeleton(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      // Padding matches the final player shell exactly so phase B → C
+      // transition has no layout jump.
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: isDark
+            ? BrandColors.nightSurfaceElevated
+            : BrandColors.softWhite,
+        border: Border.all(
+          color: BrandColors.turquoise.withValues(alpha: 0.5),
+        ),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 16,
+            height: 16,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              valueColor: AlwaysStoppedAnimation<Color>(BrandColors.turquoise),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Text(
+            'Loading audio…',
+            style: TextStyle(
+              fontSize: 12,
+              color: BrandColors.driftwood,
             ),
           ),
         ],
