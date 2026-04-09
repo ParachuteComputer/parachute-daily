@@ -255,7 +255,10 @@ class PostHocTranscriptionNotifier extends StateNotifier<PostHocTranscriptionSta
     } catch (e) {
       debugPrint('[PostHocTranscription] ❌ Job failed for $entryId: $e');
 
-      // Mark job as failed (keeps the file for retry)
+      // Mark job as failed — staged file will be cleaned up in the finally
+      // block below. The server still has its own copy of the audio (stored
+      // at ingest/uploadAudio time before this job was enqueued), so manual
+      // re-transcribe can pull it back if the user wants to retry.
       await _tracker.failJob(entryId);
 
       // Update server-side status
