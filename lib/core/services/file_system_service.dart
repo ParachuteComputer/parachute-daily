@@ -584,8 +584,9 @@ class FileSystemService {
   ///
   /// [extension] controls the file suffix. Defaults to `wav` for legacy
   /// callers (e.g. Omi capture service which writes PCM WAV bytes). The
-  /// voice memo recorder uses `ogg` because `AudioEncoder.opus` from the
-  /// `record` package produces an OGG container with Opus audio.
+  /// voice memo recorder passes `ogg` on Android and `m4a` on iOS/macOS
+  /// — the `record` package's AVFoundation backends produce an M4A
+  /// container even with `AudioEncoder.opus`. See parachute-daily#68.
   Future<String> getRecordingTempPath({String extension = 'wav'}) async {
     final tempPath = await getTempAudioPath();
     final timestamp = DateTime.now().millisecondsSinceEpoch;
