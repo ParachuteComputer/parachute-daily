@@ -477,14 +477,15 @@ class _JournalScreenState extends ConsumerState<JournalScreen> with WidgetsBindi
     final mode = await ref.read(transcriptionModeProvider.future);
     if (!mounted) return;
 
-    // For auto mode: read the cached reachability value from the stream
-    // provider without awaiting. If the stream has already emitted (e.g.
-    // the settings screen has the reachability chip open), we honor that.
-    // If cold (valueOrNull == null), default to `true` — optimistically
-    // try the server, and let the existing ingest-failure fallback handle
-    // the unreachable case by re-running `_addVoiceEntryLocally`. We used
-    // to `await .future` here, but that hung indefinitely on cold reads
-    // under some conditions. See parachute-daily#70 and the #71 follow-up.
+    // For auto mode: synchronous cached read of the reachability probe.
+    // The probe is an optimization, not a gate — its only job is to let us
+    // skip an ingest attempt we already know will fail. The save path must
+    // never block on it. If the stream has already emitted (e.g. settings
+    // screen had the reachability chip open), we honor that; otherwise we
+    // default to `true` and let the ingest-failure fallback below run
+    // `_addVoiceEntryLocally`, which post-#79 enqueues post-hoc on-device
+    // transcription via the recovery queue. Nothing is lost if the
+    // optimistic default is wrong. See parachute-daily#70 / #73 / #74.
     final useServerTranscription = switch (mode) {
       TranscriptionMode.local => false,
       TranscriptionMode.server => true,
@@ -737,8 +738,9 @@ class _JournalScreenState extends ConsumerState<JournalScreen> with WidgetsBindi
     }
 
     // Respect transcription mode setting — same pattern as _addVoiceEntry.
-    // For auto, read the cached reachability value without awaiting. See
-    // the note in _addVoiceEntry for the rationale.
+    // The reachability probe is an optimization, not a gate; optimistic
+    // cached read with a `true` default, fall back on failure. See the
+    // note in _addVoiceEntry (and parachute-daily#74) for the full rationale.
     final mode = await ref.read(transcriptionModeProvider.future);
     if (!mounted) return;
 
