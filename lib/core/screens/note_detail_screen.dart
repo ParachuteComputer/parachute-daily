@@ -43,6 +43,7 @@ class _NoteDetailScreenState extends ConsumerState<NoteDetailScreen> {
   late String _originalTitle;
   late String _originalContent;
   late List<String> _originalTags;
+  late String _currentPath;
 
   bool _saving = false;
 
@@ -58,6 +59,7 @@ class _NoteDetailScreenState extends ConsumerState<NoteDetailScreen> {
     _originalTitle = widget.note.path ?? '';
     _originalContent = widget.note.content;
     _originalTags = List<String>.from(widget.note.tags);
+    _currentPath = _originalTitle;
     _titleController = TextEditingController(text: _originalTitle);
     _contentController = TextEditingController(text: _originalContent);
     _tags = List<String>.from(widget.note.tags);
@@ -187,12 +189,32 @@ class _NoteDetailScreenState extends ConsumerState<NoteDetailScreen> {
   }
 
   Widget _buildReader(ThemeData theme) {
-    final title = widget.note.path ?? '';
+    final title = _currentPath;
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
         if (title.isNotEmpty) ...[
-          Text(title, style: theme.textTheme.headlineSmall),
+          GestureDetector(
+            onLongPress: () => _showRenameDialog(title),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(title, style: theme.textTheme.headlineSmall),
+                ),
+                GestureDetector(
+                  onTap: () => _showRenameDialog(title),
+                  child: Padding(
+                    padding: const EdgeInsets.all(4),
+                    child: Icon(
+                      Icons.drive_file_rename_outline,
+                      size: 18,
+                      color: theme.colorScheme.outline,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
           const SizedBox(height: 12),
         ],
         if (widget.note.tags.isNotEmpty) ...[
@@ -292,6 +314,79 @@ class _NoteDetailScreenState extends ConsumerState<NoteDetailScreen> {
         // Save immediately when editing tags from read mode
         await _save();
       }
+    }
+  }
+
+  Future<void> _showRenameDialog(String currentPath) async {
+    final controller = TextEditingController(text: currentPath);
+    String? newPath;
+    try {
+      newPath = await showDialog<String>(
+        context: context,
+        builder: (ctx) {
+          final theme = Theme.of(ctx);
+          return AlertDialog(
+            title: const Text('Rename note'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Links in other notes will update automatically.',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.outline,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: controller,
+                  autofocus: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Path',
+                    hintText: 'e.g. People/Atlas',
+                    border: OutlineInputBorder(),
+                  ),
+                  onSubmitted: (value) => Navigator.pop(ctx, value.trim()),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Cancel'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, controller.text.trim()),
+                child: const Text('Rename'),
+              ),
+            ],
+          );
+        },
+      );
+    } finally {
+      controller.dispose();
+    }
+
+    if (newPath == null || newPath.isEmpty || newPath == currentPath) return;
+    if (!mounted) return;
+
+    final api = ref.read(graphApiServiceProvider);
+    final result = await api.updateNote(widget.note.id, path: newPath);
+
+    if (!mounted) return;
+    if (result != null) {
+      _originalTitle = newPath;
+      _currentPath = newPath;
+      _titleController.text = newPath;
+      setState(() {});
+      widget.onChanged?.call();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Renamed to $newPath')),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Rename failed — check connection')),
+      );
     }
   }
 
