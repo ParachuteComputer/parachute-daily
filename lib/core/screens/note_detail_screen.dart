@@ -43,6 +43,7 @@ class _NoteDetailScreenState extends ConsumerState<NoteDetailScreen> {
   late String _originalTitle;
   late String _originalContent;
   late List<String> _originalTags;
+  late String _currentPath;
 
   bool _saving = false;
 
@@ -58,6 +59,7 @@ class _NoteDetailScreenState extends ConsumerState<NoteDetailScreen> {
     _originalTitle = widget.note.path ?? '';
     _originalContent = widget.note.content;
     _originalTags = List<String>.from(widget.note.tags);
+    _currentPath = _originalTitle;
     _titleController = TextEditingController(text: _originalTitle);
     _contentController = TextEditingController(text: _originalContent);
     _tags = List<String>.from(widget.note.tags);
@@ -187,7 +189,7 @@ class _NoteDetailScreenState extends ConsumerState<NoteDetailScreen> {
   }
 
   Widget _buildReader(ThemeData theme) {
-    final title = widget.note.path ?? '';
+    final title = _currentPath;
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
@@ -317,48 +319,53 @@ class _NoteDetailScreenState extends ConsumerState<NoteDetailScreen> {
 
   Future<void> _showRenameDialog(String currentPath) async {
     final controller = TextEditingController(text: currentPath);
-    final newPath = await showDialog<String>(
-      context: context,
-      builder: (ctx) {
-        final theme = Theme.of(ctx);
-        return AlertDialog(
-          title: const Text('Rename note'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Links in other notes will update automatically.',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.outline,
+    String? newPath;
+    try {
+      newPath = await showDialog<String>(
+        context: context,
+        builder: (ctx) {
+          final theme = Theme.of(ctx);
+          return AlertDialog(
+            title: const Text('Rename note'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Links in other notes will update automatically.',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.outline,
+                  ),
                 ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: controller,
+                  autofocus: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Path',
+                    hintText: 'e.g. People/Atlas',
+                    border: OutlineInputBorder(),
+                  ),
+                  onSubmitted: (value) => Navigator.pop(ctx, value.trim()),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Cancel'),
               ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: controller,
-                autofocus: true,
-                decoration: const InputDecoration(
-                  labelText: 'Path',
-                  hintText: 'e.g. People/Atlas',
-                  border: OutlineInputBorder(),
-                ),
-                onSubmitted: (value) => Navigator.pop(ctx, value.trim()),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, controller.text.trim()),
+                child: const Text('Rename'),
               ),
             ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancel'),
-            ),
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, controller.text.trim()),
-              child: const Text('Rename'),
-            ),
-          ],
-        );
-      },
-    );
+          );
+        },
+      );
+    } finally {
+      controller.dispose();
+    }
 
     if (newPath == null || newPath.isEmpty || newPath == currentPath) return;
     if (!mounted) return;
@@ -368,8 +375,8 @@ class _NoteDetailScreenState extends ConsumerState<NoteDetailScreen> {
 
     if (!mounted) return;
     if (result != null) {
-      // Update local state to reflect the rename
       _originalTitle = newPath;
+      _currentPath = newPath;
       _titleController.text = newPath;
       setState(() {});
       widget.onChanged?.call();
