@@ -95,15 +95,17 @@ class GraphApiService {
     return Note.fromJson(data as Map<String, dynamic>);
   }
 
-  /// Update a note's content and/or path.
+  /// Update a note's content, path, and/or metadata.
   Future<Note?> updateNote(
     String id, {
     String? content,
     String? path,
+    Map<String, dynamic>? metadata,
   }) async {
     final body = <String, dynamic>{};
     if (content != null) body['content'] = content;
     if (path != null) body['path'] = path;
+    if (metadata != null) body['metadata'] = metadata;
     final data = await _patch('/notes/$id', body);
     if (data == null) return null;
     return Note.fromJson(data as Map<String, dynamic>);
