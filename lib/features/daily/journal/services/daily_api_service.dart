@@ -87,12 +87,16 @@ class DailyApiService {
   /// Returns `null` on network error — callers should fall back to cache.
   /// Returns `[]` when the server responds with no notes — authoritative empty.
   Future<List<Note>?> getNotes({required String date, String? tag}) async {
-    final nextDate = _nextDate(date);
+    // Convert local date boundaries to UTC so the query matches the user's
+    // actual day regardless of timezone (server stores timestamps in UTC).
+    // DateTime.parse on date-only strings returns UTC, so construct local manually.
+    final localFrom = _localMidnight(date);
+    final localTo = localFrom.add(const Duration(days: 1));
     final uri = Uri.parse('$baseUrl$_apiPrefix/notes').replace(
       queryParameters: {
         'tag': tag ?? captureTag,
-        'date_from': '${date}T00:00:00.000Z',
-        'date_to': '${nextDate}T00:00:00.000Z',
+        'date_from': localFrom.toUtc().toIso8601String(),
+        'date_to': localTo.toUtc().toIso8601String(),
         'limit': '100',
       },
     );
@@ -524,9 +528,6 @@ class DailyApiService {
       metadata: {},
     );
   }
-
-  /// Compute the next date string for date range queries.
-  static String _nextDate(String date) => nextDate(date);
 }
 
 /// Compute the next date string (YYYY-MM-DD) for date range queries.
@@ -537,4 +538,13 @@ String nextDate(String date) {
   final m = next.month.toString().padLeft(2, '0');
   final d = next.day.toString().padLeft(2, '0');
   return '$y-$m-$d';
+}
+
+/// Parse a YYYY-MM-DD string as local midnight.
+///
+/// [DateTime.parse] on date-only strings returns UTC, so we split and
+/// construct a local [DateTime] instead.
+DateTime _localMidnight(String date) {
+  final parts = date.split('-');
+  return DateTime(int.parse(parts[0]), int.parse(parts[1]), int.parse(parts[2]));
 }

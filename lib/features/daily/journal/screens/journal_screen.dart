@@ -436,6 +436,7 @@ class _JournalScreenState extends ConsumerState<JournalScreen> with WidgetsBindi
     final api = ref.read(dailyApiServiceProvider);
     final entry = await api.createEntry(
       content: content,
+      createdAt: DateTime.now().toUtc(),
       metadata: {
         if (type != JournalEntryType.text) 'type': _entryTypeString(type),
         if (audioPath != null) 'audio_path': audioPath,
