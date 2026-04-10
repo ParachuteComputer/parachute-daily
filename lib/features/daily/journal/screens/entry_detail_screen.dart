@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:parachute/core/theme/design_tokens.dart';
-import 'package:parachute/core/widgets/tag_input.dart';
+import 'package:parachute/core/widgets/tag_picker.dart';
 import '../models/journal_entry.dart';
 
 /// Result returned when composing a new entry via Navigator.pop.
@@ -331,26 +331,60 @@ class _EntryDetailScreenState extends ConsumerState<EntryDetailScreen> {
           // Content (rendered markdown)
           _buildRenderedContent(theme, isDark, entry),
 
-          // Tags (read-only chips)
+          // Tags (read-only chips with hierarchy display)
           if (_tags.isNotEmpty) ...[
             const SizedBox(height: 24),
             Wrap(
-              spacing: 8,
+              spacing: 6,
               runSpacing: 6,
-              children: _tags.map((tag) => Chip(
-                label: Text(
-                  tag,
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: isDark ? BrandColors.stone : BrandColors.charcoal,
+              children: _tags.map((tag) {
+                final parts = tag.split('/');
+                final isHierarchical = parts.length > 1;
+                return Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: isDark
+                        ? BrandColors.forest.withValues(alpha: 0.15)
+                        : BrandColors.forestMist.withValues(alpha: 0.5),
+                    borderRadius: BorderRadius.circular(Radii.sm),
                   ),
-                ),
-                backgroundColor: isDark
-                    ? BrandColors.charcoal.withValues(alpha: 0.5)
-                    : BrandColors.stone.withValues(alpha: 0.3),
-                side: BorderSide.none,
-                visualDensity: VisualDensity.compact,
-              )).toList(),
+                  child: isHierarchical
+                      ? Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              '#${parts.first}/',
+                              style: TextStyle(
+                                fontSize: TypographyTokens.labelSmall,
+                                color: isDark
+                                    ? BrandColors.nightTextSecondary
+                                    : BrandColors.driftwood,
+                              ),
+                            ),
+                            Text(
+                              parts.sublist(1).join('/'),
+                              style: TextStyle(
+                                fontSize: TypographyTokens.labelSmall,
+                                fontWeight: FontWeight.w500,
+                                color: isDark
+                                    ? BrandColors.nightText
+                                    : BrandColors.forest,
+                              ),
+                            ),
+                          ],
+                        )
+                      : Text(
+                          '#$tag',
+                          style: TextStyle(
+                            fontSize: TypographyTokens.labelSmall,
+                            fontWeight: FontWeight.w500,
+                            color: isDark
+                                ? BrandColors.nightText
+                                : BrandColors.forest,
+                          ),
+                        ),
+                );
+              }).toList(),
             ),
           ],
 
@@ -542,15 +576,17 @@ class _EntryDetailScreenState extends ConsumerState<EntryDetailScreen> {
                   ),
                 ),
                 const SizedBox(height: 12),
-                TagInput(
-                  tags: _tags,
+                TagPicker(
+                  selectedTags: _tags,
                   onChanged: (updated) {
                     setState(() {
                       _tags = updated;
                     });
                   },
-                  suggestions: widget.allTags,
-                  hintText: 'Add a tag (e.g., "recipe", "work")...',
+                  availableTags: widget.allTags
+                      .map((t) => TagPickerItem(name: t))
+                      .toList(),
+                  compact: true,
                 ),
                 const SizedBox(height: 40),
               ],

@@ -3,8 +3,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:parachute/core/models/thing.dart';
+import 'package:parachute/core/theme/design_tokens.dart';
 import 'package:parachute/core/widgets/note_audio_player.dart';
-import 'package:parachute/core/widgets/tag_input.dart';
+import 'package:parachute/core/widgets/tag_picker.dart';
+import 'package:parachute/core/widgets/tag_picker_sheet.dart';
 import 'package:parachute/features/daily/journal/providers/journal_providers.dart';
 import 'package:parachute/features/vault/providers/vault_providers.dart';
 
@@ -191,14 +193,20 @@ class _NoteDetailScreenState extends ConsumerState<NoteDetailScreen> {
           const SizedBox(height: 12),
         ],
         if (widget.note.tags.isNotEmpty) ...[
-          Wrap(
-            spacing: 6,
-            runSpacing: 4,
-            children: widget.note.tags.map((t) => Chip(
-              label: Text('#$t', style: theme.textTheme.labelSmall),
-              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              visualDensity: VisualDensity.compact,
-            )).toList(),
+          GestureDetector(
+            onTap: () => _openTagSheet(),
+            child: Wrap(
+              spacing: 6,
+              runSpacing: 4,
+              children: [
+                ...widget.note.tags.map((t) => _ReadOnlyTagChip(tag: t)),
+                Icon(
+                  Icons.edit_outlined,
+                  size: 14,
+                  color: theme.colorScheme.outline,
+                ),
+              ],
+            ),
           ),
           const SizedBox(height: 12),
         ],
@@ -233,7 +241,7 @@ class _NoteDetailScreenState extends ConsumerState<NoteDetailScreen> {
           onChanged: (_) => setState(() {}),
         ),
         const Divider(),
-        _TagInputWithSuggestions(
+        _TagPickerInline(
           tags: _tags,
           onChanged: (tags) => setState(() => _tags = tags),
         ),
@@ -254,6 +262,24 @@ class _NoteDetailScreenState extends ConsumerState<NoteDetailScreen> {
     );
   }
 
+  Future<void> _openTagSheet() async {
+    final result = await showTagPickerSheet(
+      context: context,
+      ref: ref,
+      currentTags: List<String>.from(_isEditing ? _tags : widget.note.tags),
+    );
+    if (result != null && mounted) {
+      setState(() {
+        _tags = result;
+        if (!_isEditing) {
+          // Apply immediately if in read mode
+          _isEditing = false;
+          _save();
+        }
+      });
+    }
+  }
+
   String _formatTimestamp(DateTime created, DateTime? updated) {
     final fmt = _fmtDate(created);
     if (updated != null && updated.isAfter(created)) {
@@ -268,24 +294,81 @@ class _NoteDetailScreenState extends ConsumerState<NoteDetailScreen> {
   }
 }
 
-/// TagInput wrapper that fetches vault tags for autocomplete suggestions.
-class _TagInputWithSuggestions extends ConsumerWidget {
+/// Inline TagPicker that fetches vault tags for suggestions.
+class _TagPickerInline extends ConsumerWidget {
   final List<String> tags;
   final void Function(List<String>) onChanged;
 
-  const _TagInputWithSuggestions({required this.tags, required this.onChanged});
+  const _TagPickerInline({required this.tags, required this.onChanged});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final tagsAsync = ref.watch(vaultTagsProvider);
-    final suggestions = tagsAsync.valueOrNull
-            ?.map((t) => t.tag)
+    final available = tagsAsync.valueOrNull
+            ?.map((t) => TagPickerItem(name: t.tag, count: t.count))
             .toList() ??
         [];
-    return TagInput(
-      tags: tags,
+    return TagPicker(
+      selectedTags: tags,
       onChanged: onChanged,
-      suggestions: suggestions,
+      availableTags: available,
+      compact: true,
+    );
+  }
+}
+
+/// Read-only tag chip with hierarchy-aware display.
+class _ReadOnlyTagChip extends StatelessWidget {
+  final String tag;
+  const _ReadOnlyTagChip({required this.tag});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final parts = tag.split('/');
+    final isHierarchical = parts.length > 1;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+      decoration: BoxDecoration(
+        color: isDark
+            ? BrandColors.forest.withValues(alpha: 0.15)
+            : BrandColors.forestMist.withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(Radii.sm),
+      ),
+      child: isHierarchical
+          ? Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  '#${parts.first}/',
+                  style: TextStyle(
+                    fontSize: TypographyTokens.labelSmall,
+                    color: isDark
+                        ? BrandColors.nightTextSecondary
+                        : BrandColors.driftwood,
+                  ),
+                ),
+                Text(
+                  parts.sublist(1).join('/'),
+                  style: TextStyle(
+                    fontSize: TypographyTokens.labelSmall,
+                    fontWeight: FontWeight.w500,
+                    color: isDark
+                        ? BrandColors.nightText
+                        : BrandColors.forest,
+                  ),
+                ),
+              ],
+            )
+          : Text(
+              '#$tag',
+              style: TextStyle(
+                fontSize: TypographyTokens.labelSmall,
+                fontWeight: FontWeight.w500,
+                color: isDark ? BrandColors.nightText : BrandColors.forest,
+              ),
+            ),
     );
   }
 }
