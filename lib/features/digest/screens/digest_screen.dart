@@ -24,6 +24,14 @@ class DigestScreen extends ConsumerStatefulWidget {
 }
 
 class _DigestScreenState extends ConsumerState<DigestScreen> {
+  final _scrollController = ScrollController();
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
   void _refresh() {
     ref.read(digestRefreshTriggerProvider.notifier).state++;
   }
@@ -109,6 +117,7 @@ class _DigestScreenState extends ConsumerState<DigestScreen> {
         (sortedKeys.length == 1 && sortedKeys.first.isNotEmpty);
 
     return ListView.builder(
+      controller: _scrollController,
       padding: const EdgeInsets.symmetric(vertical: 4),
       itemCount: sortedKeys.length,
       itemBuilder: (context, sectionIndex) {
