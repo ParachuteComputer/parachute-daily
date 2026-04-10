@@ -4,6 +4,9 @@ import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:parachute/core/theme/design_tokens.dart';
 import 'package:parachute/core/widgets/tag_picker.dart';
+import 'package:parachute/core/widgets/wikilink_handler.dart';
+import 'package:parachute/core/widgets/wikilink_syntax.dart';
+import 'package:parachute/features/daily/journal/providers/journal_providers.dart';
 import '../models/journal_entry.dart';
 
 /// Result returned when composing a new entry via Navigator.pop.
@@ -460,6 +463,16 @@ class _EntryDetailScreenState extends ConsumerState<EntryDetailScreen> {
       shrinkWrap: true,
       softLineBreak: true,
       selectable: true,
+      inlineSyntaxes: [WikilinkSyntax()],
+      builders: {
+        'wikilink': WikilinkBuilder(
+          onTap: (target) => handleWikilinkTap(
+            context: context,
+            api: ref.read(graphApiServiceProvider),
+            target: target,
+          ),
+        ),
+      },
       styleSheet: MarkdownStyleSheet(
         p: theme.textTheme.bodyLarge?.copyWith(
           color: isDark ? BrandColors.stone : BrandColors.charcoal,

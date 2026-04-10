@@ -5,6 +5,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:parachute/core/models/thing.dart';
 import 'package:parachute/core/theme/design_tokens.dart';
 import 'package:parachute/core/widgets/note_audio_player.dart';
+import 'package:parachute/core/widgets/wikilink_handler.dart';
+import 'package:parachute/core/widgets/wikilink_syntax.dart';
 import 'package:parachute/core/widgets/tag_picker.dart';
 import 'package:parachute/core/widgets/tag_picker_sheet.dart';
 import 'package:parachute/features/daily/journal/providers/journal_providers.dart';
@@ -214,6 +216,17 @@ class _NoteDetailScreenState extends ConsumerState<NoteDetailScreen> {
         MarkdownBody(
           data: widget.note.content,
           selectable: true,
+          inlineSyntaxes: [WikilinkSyntax()],
+          builders: {
+            'wikilink': WikilinkBuilder(
+              onTap: (target) => handleWikilinkTap(
+                context: context,
+                api: ref.read(graphApiServiceProvider),
+                target: target,
+                onChanged: widget.onChanged,
+              ),
+            ),
+          },
           styleSheet: MarkdownStyleSheet.fromTheme(theme).copyWith(
             p: theme.textTheme.bodyLarge,
           ),
