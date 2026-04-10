@@ -6,6 +6,7 @@ import 'package:parachute/core/models/thing.dart';
 import 'package:parachute/core/widgets/note_audio_player.dart';
 import 'package:parachute/core/widgets/tag_input.dart';
 import 'package:parachute/features/daily/journal/providers/journal_providers.dart';
+import 'package:parachute/features/vault/providers/vault_providers.dart';
 
 /// Detail screen for viewing/editing a Note.
 ///
@@ -85,8 +86,19 @@ class _NoteDetailScreenState extends ConsumerState<NoteDetailScreen> {
     // Sync tags: add new, remove old
     final newTags = _tags.where((t) => !_originalTags.contains(t)).toList();
     final removedTags = _originalTags.where((t) => !_tags.contains(t)).toList();
-    if (newTags.isNotEmpty) await api.tagNote(widget.note.id, newTags);
-    if (removedTags.isNotEmpty) await api.untagNote(widget.note.id, removedTags);
+    bool tagFailed = false;
+    if (newTags.isNotEmpty) {
+      final result = await api.tagNote(widget.note.id, newTags);
+      if (result == null) tagFailed = true;
+    }
+    if (removedTags.isNotEmpty) {
+      final result = await api.untagNote(widget.note.id, removedTags);
+      if (result == null) tagFailed = true;
+    }
+
+    if (newTags.isNotEmpty || removedTags.isNotEmpty) {
+      ref.invalidate(vaultTagsProvider);
+    }
 
     _originalTitle = _titleController.text;
     _originalContent = _contentController.text;
@@ -96,6 +108,12 @@ class _NoteDetailScreenState extends ConsumerState<NoteDetailScreen> {
       _saving = false;
       _isEditing = false;
     });
+
+    if (tagFailed && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Some tag changes may not have saved')),
+      );
+    }
 
     widget.onChanged?.call();
   }
@@ -215,7 +233,7 @@ class _NoteDetailScreenState extends ConsumerState<NoteDetailScreen> {
           onChanged: (_) => setState(() {}),
         ),
         const Divider(),
-        TagInput(
+        _TagInputWithSuggestions(
           tags: _tags,
           onChanged: (tags) => setState(() => _tags = tags),
         ),
@@ -247,5 +265,27 @@ class _NoteDetailScreenState extends ConsumerState<NoteDetailScreen> {
   String _fmtDate(DateTime dt) {
     final months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
     return '${months[dt.month - 1]} ${dt.day}, ${dt.year}';
+  }
+}
+
+/// TagInput wrapper that fetches vault tags for autocomplete suggestions.
+class _TagInputWithSuggestions extends ConsumerWidget {
+  final List<String> tags;
+  final void Function(List<String>) onChanged;
+
+  const _TagInputWithSuggestions({required this.tags, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final tagsAsync = ref.watch(vaultTagsProvider);
+    final suggestions = tagsAsync.valueOrNull
+            ?.map((t) => t.tag)
+            .toList() ??
+        [];
+    return TagInput(
+      tags: tags,
+      onChanged: onChanged,
+      suggestions: suggestions,
+    );
   }
 }

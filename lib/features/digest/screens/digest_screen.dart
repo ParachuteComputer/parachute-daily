@@ -4,6 +4,7 @@ import 'package:parachute/core/models/thing.dart';
 import 'package:parachute/core/screens/note_detail_screen.dart';
 import 'package:parachute/core/theme/design_tokens.dart';
 import 'package:parachute/features/daily/journal/providers/journal_providers.dart';
+import 'package:parachute/features/vault/providers/vault_providers.dart';
 import '../providers/digest_providers.dart';
 
 /// Reader tab — inbox of content to process.
@@ -261,7 +262,7 @@ class _DigestCard extends ConsumerWidget {
       confirmDismiss: (direction) async {
         if (direction == DismissDirection.startToEnd) {
           // Pin/unpin — toggle in place, don't dismiss.
-          await _togglePin(ref);
+          await _togglePin(context, ref);
           return false;
         }
         // Archive/unarchive — dismiss and show undo.
@@ -405,7 +406,7 @@ class _DigestCard extends ConsumerWidget {
         onSelected: (value) async {
           switch (value) {
             case 'pin':
-              await _togglePin(ref);
+              await _togglePin(context, ref);
             case 'archive':
               await _toggleArchive(context, ref);
           }
@@ -472,13 +473,18 @@ class _DigestCard extends ConsumerWidget {
     ];
   }
 
-  Future<void> _togglePin(WidgetRef ref) async {
+  Future<void> _togglePin(BuildContext context, WidgetRef ref) async {
     final api = ref.read(graphApiServiceProvider);
-    if (note.isPinned) {
-      await api.untagNote(note.id, ['pinned']);
-    } else {
-      await api.tagNote(note.id, ['pinned']);
+    final result = note.isPinned
+        ? await api.untagNote(note.id, ['pinned'])
+        : await api.tagNote(note.id, ['pinned']);
+    if (result == null && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Failed to update pin — check connection')),
+      );
+      return;
     }
+    ref.invalidate(vaultTagsProvider);
     onChanged();
   }
 
@@ -487,11 +493,16 @@ class _DigestCard extends ConsumerWidget {
     final api = ref.read(graphApiServiceProvider);
     final wasArchived = note.isArchived;
 
-    if (wasArchived) {
-      await api.untagNote(note.id, ['archived']);
-    } else {
-      await api.tagNote(note.id, ['archived']);
+    final result = wasArchived
+        ? await api.untagNote(note.id, ['archived'])
+        : await api.tagNote(note.id, ['archived']);
+    if (result == null && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Failed to update archive — check connection')),
+      );
+      return;
     }
+    ref.invalidate(vaultTagsProvider);
     onChanged();
 
     if (!context.mounted) return;
@@ -505,10 +516,11 @@ class _DigestCard extends ConsumerWidget {
         action: SnackBarAction(
           label: 'Undo',
           onPressed: () async {
-            if (wasArchived) {
-              await api.tagNote(note.id, ['archived']);
-            } else {
-              await api.untagNote(note.id, ['archived']);
+            final undoResult = wasArchived
+                ? await api.tagNote(note.id, ['archived'])
+                : await api.untagNote(note.id, ['archived']);
+            if (undoResult != null) {
+              ref.invalidate(vaultTagsProvider);
             }
             onChanged();
           },

@@ -48,11 +48,11 @@ class _TagInputState extends State<TagInput> {
   void _addTag(String raw) {
     if (raw.isEmpty) return;
     final tag = raw.toLowerCase().replaceAll(' ', '-');
-    // Validate: alphanumeric + hyphens, max 48 chars
-    if (!RegExp(r'^[a-z0-9](?:[a-z0-9\-]{0,46}[a-z0-9])?$').hasMatch(tag)) {
+    // Validate: alphanumeric + hyphens + slashes (for hierarchy), max 48 chars
+    if (!RegExp(r'^[a-z0-9](?:[a-z0-9\-/]{0,46}[a-z0-9])?$').hasMatch(tag)) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Tags must be lowercase letters, numbers, and hyphens'),
+          content: Text('Tags must be lowercase letters, numbers, hyphens, and slashes'),
           duration: Duration(seconds: 2),
         ),
       );

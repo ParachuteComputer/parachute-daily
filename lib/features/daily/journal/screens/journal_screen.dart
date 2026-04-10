@@ -15,6 +15,7 @@ import 'package:parachute/core/providers/connectivity_provider.dart' show isServ
 import 'package:parachute/core/models/thing.dart';
 import 'package:parachute/core/services/note_local_cache.dart';
 import 'package:parachute/core/services/tag_service.dart' show TagInfo, tagServiceProvider;
+import 'package:parachute/features/vault/providers/vault_providers.dart';
 import '../../recorder/providers/post_hoc_transcription_provider.dart';
 import '../../recorder/providers/service_providers.dart';
 import '../models/entry_metadata.dart' show TranscriptionStatus;
@@ -1181,8 +1182,7 @@ class _JournalScreenState extends ConsumerState<JournalScreen> with WidgetsBindi
               cache.markForEdit(updatedEntry.id, content: updatedEntry.content);
             }
 
-            // Sync tag changes to graph — best-effort alongside metadata.
-            // Metadata is the durable path; backend migration catches gaps.
+            // Sync tag changes to graph.
             if (!mounted) return;
             final oldTags = Set<String>.from(displayEntry.tags ?? []);
             final newTags = Set<String>.from(updatedEntry.tags ?? []);
@@ -1190,15 +1190,20 @@ class _JournalScreenState extends ConsumerState<JournalScreen> with WidgetsBindi
               final graphApi = ref.read(graphApiServiceProvider);
               final toAdd = newTags.difference(oldTags).toList();
               final toRemove = oldTags.difference(newTags).toList();
+              bool tagFailed = false;
               if (toAdd.isNotEmpty) {
-                graphApi.tagNote(updatedEntry.id, toAdd).then((n) {
-                  if (n == null) debugPrint('[JournalScreen] Tag sync failed: add $toAdd to ${updatedEntry.id}');
-                });
+                final result = await graphApi.tagNote(updatedEntry.id, toAdd);
+                if (result == null) tagFailed = true;
               }
               if (toRemove.isNotEmpty) {
-                graphApi.untagNote(updatedEntry.id, toRemove).then((n) {
-                  if (n == null) debugPrint('[JournalScreen] Tag sync failed: remove $toRemove from ${updatedEntry.id}');
-                });
+                final result = await graphApi.untagNote(updatedEntry.id, toRemove);
+                if (result == null) tagFailed = true;
+              }
+              ref.invalidate(vaultTagsProvider);
+              if (tagFailed && mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Some tag changes may not have saved')),
+                );
               }
             }
 
