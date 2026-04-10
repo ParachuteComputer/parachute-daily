@@ -87,12 +87,15 @@ class DailyApiService {
   /// Returns `null` on network error — callers should fall back to cache.
   /// Returns `[]` when the server responds with no notes — authoritative empty.
   Future<List<Note>?> getNotes({required String date, String? tag}) async {
-    final nextDate = _nextDate(date);
+    // Convert local date boundaries to UTC so the query matches the user's
+    // actual day regardless of timezone (server stores timestamps in UTC).
+    final localFrom = DateTime.parse(date);
+    final localTo = localFrom.add(const Duration(days: 1));
     final uri = Uri.parse('$baseUrl$_apiPrefix/notes').replace(
       queryParameters: {
         'tag': tag ?? captureTag,
-        'date_from': '${date}T00:00:00.000Z',
-        'date_to': '${nextDate}T00:00:00.000Z',
+        'date_from': localFrom.toUtc().toIso8601String(),
+        'date_to': localTo.toUtc().toIso8601String(),
         'limit': '100',
       },
     );
@@ -524,9 +527,6 @@ class DailyApiService {
       metadata: {},
     );
   }
-
-  /// Compute the next date string for date range queries.
-  static String _nextDate(String date) => nextDate(date);
 }
 
 /// Compute the next date string (YYYY-MM-DD) for date range queries.
