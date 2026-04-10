@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:parachute/core/theme/design_tokens.dart';
+import 'package:parachute/core/widgets/note_links_section.dart';
 import 'package:parachute/core/widgets/tag_picker.dart';
 import 'package:parachute/core/widgets/wikilink_handler.dart';
 import 'package:parachute/core/widgets/wikilink_syntax.dart';
@@ -390,6 +391,12 @@ class _EntryDetailScreenState extends ConsumerState<EntryDetailScreen> {
               }).toList(),
             ),
           ],
+
+          // Backlinks and forward links
+          if (!entry.isPending)
+            NoteLinksSection(
+              noteId: entry.id,
+            ),
 
           const SizedBox(height: 40),
         ],
