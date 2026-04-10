@@ -269,14 +269,11 @@ class _NoteDetailScreenState extends ConsumerState<NoteDetailScreen> {
       currentTags: List<String>.from(_isEditing ? _tags : widget.note.tags),
     );
     if (result != null && mounted) {
-      setState(() {
-        _tags = result;
-        if (!_isEditing) {
-          // Apply immediately if in read mode
-          _isEditing = false;
-          _save();
-        }
-      });
+      setState(() => _tags = result);
+      if (!_isEditing) {
+        // Save immediately when editing tags from read mode
+        await _save();
+      }
     }
   }
 

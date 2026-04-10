@@ -153,7 +153,9 @@ class _TagPickerState extends State<TagPicker> {
 
         return AnimatedSize(
           duration: const Duration(milliseconds: 150),
-          child: Container(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 240),
+            child: Container(
             padding: const EdgeInsets.only(left: 10, right: 4, top: 4, bottom: 4),
             decoration: BoxDecoration(
               color: isDark
@@ -179,21 +181,27 @@ class _TagPickerState extends State<TagPicker> {
                           : BrandColors.driftwood,
                     ),
                   ),
-                  Text(
-                    parts.sublist(1).join('/'),
-                    style: TextStyle(
-                      fontSize: TypographyTokens.labelMedium,
-                      fontWeight: FontWeight.w500,
-                      color: isDark ? BrandColors.nightText : BrandColors.forest,
+                  Flexible(
+                    child: Text(
+                      parts.sublist(1).join('/'),
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: TypographyTokens.labelMedium,
+                        fontWeight: FontWeight.w500,
+                        color: isDark ? BrandColors.nightText : BrandColors.forest,
+                      ),
                     ),
                   ),
                 ] else
-                  Text(
-                    tag,
-                    style: TextStyle(
-                      fontSize: TypographyTokens.labelMedium,
-                      fontWeight: FontWeight.w500,
-                      color: isDark ? BrandColors.nightText : BrandColors.forest,
+                  Flexible(
+                    child: Text(
+                      tag,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: TypographyTokens.labelMedium,
+                        fontWeight: FontWeight.w500,
+                        color: isDark ? BrandColors.nightText : BrandColors.forest,
+                      ),
                     ),
                   ),
                 const SizedBox(width: 2),
@@ -209,6 +217,7 @@ class _TagPickerState extends State<TagPicker> {
                 ),
               ],
             ),
+          ),
           ),
         );
       }).toList(),
@@ -403,7 +412,7 @@ class _TagPickerState extends State<TagPicker> {
                   ),
                   if (totalCount > 0) ...[
                     Text(
-                      ' · ${totalCount}n',
+                      ' · $totalCount notes',
                       style: TextStyle(
                         fontSize: TypographyTokens.labelSmall,
                         color: isDark
@@ -452,7 +461,7 @@ class _TagPickerState extends State<TagPicker> {
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
         decoration: BoxDecoration(
           color: isDark
-              ? BrandColors.charcoal.withValues(alpha: 0.4)
+              ? BrandColors.charcoal.withValues(alpha: 0.6)
               : BrandColors.stone.withValues(alpha: 0.3),
           borderRadius: BorderRadius.circular(Radii.sm),
         ),

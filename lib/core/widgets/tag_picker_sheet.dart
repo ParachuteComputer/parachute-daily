@@ -49,6 +49,7 @@ class _TagPickerSheetBodyState extends State<_TagPickerSheetBody> {
     final isDark = theme.brightness == Brightness.dark;
     final screenHeight = MediaQuery.of(context).size.height;
     final tagsAsync = widget.ref.watch(vaultTagsProvider);
+    final isLoading = tagsAsync.isLoading;
 
     final available = tagsAsync.valueOrNull
             ?.map((t) => TagPickerItem(name: t.tag, count: t.count))
@@ -117,14 +118,25 @@ class _TagPickerSheetBodyState extends State<_TagPickerSheetBody> {
 
           // Picker body (scrollable)
           Flexible(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
-              child: TagPicker(
-                selectedTags: _tags,
-                onChanged: (tags) => setState(() => _tags = tags),
-                availableTags: available,
-              ),
-            ),
+            child: isLoading && available.isEmpty
+                ? const Padding(
+                    padding: EdgeInsets.all(32),
+                    child: Center(
+                      child: SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    ),
+                  )
+                : SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+                    child: TagPicker(
+                      selectedTags: _tags,
+                      onChanged: (tags) => setState(() => _tags = tags),
+                      availableTags: available,
+                    ),
+                  ),
           ),
         ],
       ),
