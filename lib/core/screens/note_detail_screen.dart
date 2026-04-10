@@ -6,6 +6,7 @@ import 'package:parachute/core/models/thing.dart';
 import 'package:parachute/core/theme/design_tokens.dart';
 import 'package:parachute/core/widgets/note_audio_player.dart';
 import 'package:parachute/core/widgets/note_links_section.dart';
+import 'package:parachute/core/widgets/note_metadata_section.dart';
 import 'package:parachute/core/widgets/wikilink_handler.dart';
 import 'package:parachute/core/widgets/wikilink_syntax.dart';
 import 'package:parachute/core/widgets/tag_picker.dart';
@@ -253,6 +254,10 @@ class _NoteDetailScreenState extends ConsumerState<NoteDetailScreen> {
           styleSheet: MarkdownStyleSheet.fromTheme(theme).copyWith(
             p: theme.textTheme.bodyLarge,
           ),
+        ),
+        NoteMetadataSection(
+          note: widget.note,
+          onChanged: widget.onChanged,
         ),
         NoteLinksSection(
           noteId: widget.note.id,
