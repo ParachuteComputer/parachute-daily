@@ -41,6 +41,7 @@ class _NoteDetailScreenState extends ConsumerState<NoteDetailScreen> {
   late List<String> _tags;
   final FocusNode _contentFocusNode = FocusNode();
 
+  late Note _note;
   late String _originalTitle;
   late String _originalContent;
   late List<String> _originalTags;
@@ -56,14 +57,33 @@ class _NoteDetailScreenState extends ConsumerState<NoteDetailScreen> {
   @override
   void initState() {
     super.initState();
+    _note = widget.note;
     _isEditing = false;
-    _originalTitle = widget.note.path ?? '';
-    _originalContent = widget.note.content;
-    _originalTags = List<String>.from(widget.note.tags);
+    _originalTitle = _note.path ?? '';
+    _originalContent = _note.content;
+    _originalTags = List<String>.from(_note.tags);
     _currentPath = _originalTitle;
     _titleController = TextEditingController(text: _originalTitle);
     _contentController = TextEditingController(text: _originalContent);
-    _tags = List<String>.from(widget.note.tags);
+    _tags = List<String>.from(_note.tags);
+  }
+
+  Future<void> _refreshNote() async {
+    final api = ref.read(graphApiServiceProvider);
+    final refreshed = await api.getNote(_note.id);
+    if (!mounted || refreshed == null) return;
+    setState(() {
+      _note = refreshed;
+      _originalTitle = refreshed.path ?? '';
+      _originalContent = refreshed.content;
+      _originalTags = List<String>.from(refreshed.tags);
+      _currentPath = _originalTitle;
+      if (!_isEditing) {
+        _titleController.text = _originalTitle;
+        _contentController.text = _originalContent;
+        _tags = List<String>.from(refreshed.tags);
+      }
+    });
   }
 
   @override
@@ -146,7 +166,7 @@ class _NoteDetailScreenState extends ConsumerState<NoteDetailScreen> {
     final theme = Theme.of(context);
     final title = _isEditing
         ? _titleController.text
-        : (widget.note.path ?? '');
+        : (_note.path ?? '');
 
     return PopScope(
       canPop: !_hasChanges,
@@ -191,85 +211,89 @@ class _NoteDetailScreenState extends ConsumerState<NoteDetailScreen> {
 
   Widget _buildReader(ThemeData theme) {
     final title = _currentPath;
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        if (title.isNotEmpty) ...[
-          GestureDetector(
-            onLongPress: () => _showRenameDialog(title),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Text(title, style: theme.textTheme.headlineSmall),
-                ),
-                GestureDetector(
-                  onTap: () => _showRenameDialog(title),
-                  child: Padding(
-                    padding: const EdgeInsets.all(4),
-                    child: Icon(
-                      Icons.drive_file_rename_outline,
-                      size: 18,
-                      color: theme.colorScheme.outline,
+    return RefreshIndicator(
+      onRefresh: _refreshNote,
+      color: BrandColors.forest,
+      child: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          if (title.isNotEmpty) ...[
+            GestureDetector(
+              onLongPress: () => _showRenameDialog(title),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(title, style: theme.textTheme.headlineSmall),
+                  ),
+                  GestureDetector(
+                    onTap: () => _showRenameDialog(title),
+                    child: Padding(
+                      padding: const EdgeInsets.all(4),
+                      child: Icon(
+                        Icons.drive_file_rename_outline,
+                        size: 18,
+                        color: theme.colorScheme.outline,
+                      ),
                     ),
                   ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 12),
-        ],
-        if (widget.note.tags.isNotEmpty) ...[
-          GestureDetector(
-            onTap: () => _openTagSheet(),
-            child: Wrap(
-              spacing: 6,
-              runSpacing: 4,
-              children: [
-                ...widget.note.tags.map((t) => _ReadOnlyTagChip(tag: t)),
-                Icon(
-                  Icons.edit_outlined,
-                  size: 14,
-                  color: theme.colorScheme.outline,
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 12),
-        ],
-        NoteAudioPlayer(note: widget.note),
-        MarkdownBody(
-          data: widget.note.content,
-          selectable: true,
-          inlineSyntaxes: [WikilinkSyntax()],
-          builders: {
-            'wikilink': WikilinkBuilder(
-              onTap: (target) => handleWikilinkTap(
-                context: context,
-                api: ref.read(graphApiServiceProvider),
-                target: target,
-                onChanged: widget.onChanged,
-                replaceCurrentRoute: true,
+                ],
               ),
             ),
-          },
-          styleSheet: MarkdownStyleSheet.fromTheme(theme).copyWith(
-            p: theme.textTheme.bodyLarge,
+            const SizedBox(height: 12),
+          ],
+          if (_note.tags.isNotEmpty) ...[
+            GestureDetector(
+              onTap: () => _openTagSheet(),
+              child: Wrap(
+                spacing: 6,
+                runSpacing: 4,
+                children: [
+                  ..._note.tags.map((t) => _ReadOnlyTagChip(tag: t)),
+                  Icon(
+                    Icons.edit_outlined,
+                    size: 14,
+                    color: theme.colorScheme.outline,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+          ],
+          NoteAudioPlayer(note: _note),
+          MarkdownBody(
+            data: _note.content,
+            selectable: true,
+            inlineSyntaxes: [WikilinkSyntax()],
+            builders: {
+              'wikilink': WikilinkBuilder(
+                onTap: (target) => handleWikilinkTap(
+                  context: context,
+                  api: ref.read(graphApiServiceProvider),
+                  target: target,
+                  onChanged: widget.onChanged,
+                  replaceCurrentRoute: true,
+                ),
+              ),
+            },
+            styleSheet: MarkdownStyleSheet.fromTheme(theme).copyWith(
+              p: theme.textTheme.bodyLarge,
+            ),
           ),
-        ),
-        NoteMetadataSection(
-          note: widget.note,
-          onChanged: widget.onChanged,
-        ),
-        NoteLinksSection(
-          noteId: widget.note.id,
-          onChanged: widget.onChanged,
-        ),
-        const SizedBox(height: 16),
-        Text(
-          _formatTimestamp(widget.note.createdAt, widget.note.updatedAt),
-          style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.outline),
-        ),
-      ],
+          NoteMetadataSection(
+            note: _note,
+            onChanged: widget.onChanged,
+          ),
+          NoteLinksSection(
+            noteId: _note.id,
+            onChanged: widget.onChanged,
+          ),
+          const SizedBox(height: 16),
+          Text(
+            _formatTimestamp(_note.createdAt, _note.updatedAt),
+            style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.outline),
+          ),
+        ],
+      ),
     );
   }
 
@@ -312,7 +336,7 @@ class _NoteDetailScreenState extends ConsumerState<NoteDetailScreen> {
     final result = await showTagPickerSheet(
       context: context,
       ref: ref,
-      currentTags: List<String>.from(_isEditing ? _tags : widget.note.tags),
+      currentTags: List<String>.from(_isEditing ? _tags : _note.tags),
     );
     if (result != null && mounted) {
       setState(() => _tags = result);
