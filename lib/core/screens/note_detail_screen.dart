@@ -248,6 +248,7 @@ class _NoteDetailScreenState extends ConsumerState<NoteDetailScreen> {
                 api: ref.read(graphApiServiceProvider),
                 target: target,
                 onChanged: widget.onChanged,
+                replaceCurrentRoute: true,
               ),
             ),
           },

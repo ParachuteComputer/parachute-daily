@@ -9,12 +9,16 @@ import 'package:parachute/core/theme/design_tokens.dart';
 /// Searches by path first (exact match), then falls back to content search.
 /// When multiple notes match with similar relevance, shows a disambiguation
 /// bottom sheet so the user can pick the right one.
-/// Shows a snackbar if no matching note is found.
+/// If no note is found, offers to create one with the target as its path.
+///
+/// Set [replaceCurrentRoute] to true when navigating from within a detail
+/// screen — this uses pushReplacement to avoid unbounded stack growth.
 Future<void> handleWikilinkTap({
   required BuildContext context,
   required GraphApiService api,
   required String target,
   VoidCallback? onChanged,
+  bool replaceCurrentRoute = false,
 }) async {
   // Search for the note by its path/title
   final results = await api.searchNotes(target, limit: 10);
@@ -27,14 +31,39 @@ Future<void> handleWikilinkTap({
     return;
   }
   if (results.isEmpty) {
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Note not found: $target'),
-          duration: const Duration(seconds: 2),
-        ),
-      );
+    if (!context.mounted) return;
+    // Offer to create the note
+    final shouldCreate = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Create "$target"?'),
+        content: const Text('No matching note found. Create a new one?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Create'),
+          ),
+        ],
+      ),
+    );
+    if (shouldCreate != true || !context.mounted) return;
+
+    final created = await api.createNote('', path: target);
+    if (created == null) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to create note — check connection')),
+        );
+      }
+      return;
     }
+    if (!context.mounted) return;
+    _navigateToNote(context, created, onChanged,
+        replace: replaceCurrentRoute);
     return;
   }
 
@@ -45,26 +74,36 @@ Future<void> handleWikilinkTap({
 
   // Single strong match → navigate directly
   if (ranked.length == 1 || _isClearWinner(ranked, target)) {
-    _navigateToNote(context, ranked.first, onChanged);
+    _navigateToNote(context, ranked.first, onChanged,
+        replace: replaceCurrentRoute);
     return;
   }
 
   // Multiple ambiguous matches → show picker
   final chosen = await _showDisambiguationSheet(context, target, ranked);
   if (chosen != null && context.mounted) {
-    _navigateToNote(context, chosen, onChanged);
+    _navigateToNote(context, chosen, onChanged,
+        replace: replaceCurrentRoute);
   }
 }
 
-void _navigateToNote(BuildContext context, Note note, VoidCallback? onChanged) {
-  Navigator.of(context).push(
-    MaterialPageRoute(
-      builder: (_) => NoteDetailScreen(
-        note: note,
-        onChanged: onChanged,
-      ),
+void _navigateToNote(
+  BuildContext context,
+  Note note,
+  VoidCallback? onChanged, {
+  bool replace = false,
+}) {
+  final route = MaterialPageRoute(
+    builder: (_) => NoteDetailScreen(
+      note: note,
+      onChanged: onChanged,
     ),
   );
+  if (replace) {
+    Navigator.of(context).pushReplacement(route);
+  } else {
+    Navigator.of(context).push(route);
+  }
 }
 
 /// Score how well a note matches a wikilink target.
@@ -138,9 +177,9 @@ Future<Note?> _showDisambiguationSheet(
               const SizedBox(height: 12),
               ...options.take(8).map((note) {
                 final path = note.path ?? '';
-                final display = path.isNotEmpty
-                    ? path
-                    : _snippetFromContent(note.content);
+                final snippet = _snippetFromContent(note.content);
+                final hasPath = path.isNotEmpty;
+                final tags = note.tags.where((t) => t != 'captured').take(3).toList();
 
                 return ListTile(
                   leading: Icon(
@@ -151,20 +190,39 @@ Future<Note?> _showDisambiguationSheet(
                     size: 20,
                   ),
                   title: Text(
-                    display,
+                    hasPath ? path : snippet,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
-                  subtitle: path.isNotEmpty && note.content.isNotEmpty
-                      ? Text(
-                          _snippetFromContent(note.content),
-                          maxLines: 1,
+                  subtitle: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (hasPath && note.content.isNotEmpty)
+                        Text(
+                          snippet,
+                          maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                           style: theme.textTheme.bodySmall?.copyWith(
                             color: theme.colorScheme.outline,
                           ),
-                        )
-                      : null,
+                        ),
+                      if (tags.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 2),
+                          child: Text(
+                            tags.map((t) => '#$t').join('  '),
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              color: isDark
+                                  ? BrandColors.forest.withValues(alpha: 0.7)
+                                  : BrandColors.forest.withValues(alpha: 0.6),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
                   onTap: () => Navigator.of(ctx).pop(note),
                 );
               }),

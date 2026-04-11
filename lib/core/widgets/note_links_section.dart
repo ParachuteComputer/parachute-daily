@@ -123,7 +123,7 @@ class _NoteLinksSectionState extends ConsumerState<NoteLinksSection> {
   }
 
   void _navigateToNote(Note note) {
-    Navigator.of(context).push(
+    Navigator.of(context).pushReplacement(
       MaterialPageRoute(
         builder: (_) => NoteDetailScreen(
           note: note,

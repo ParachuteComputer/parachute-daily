@@ -477,6 +477,7 @@ class _EntryDetailScreenState extends ConsumerState<EntryDetailScreen> {
             context: context,
             api: ref.read(graphApiServiceProvider),
             target: target,
+            replaceCurrentRoute: true,
           ),
         ),
       },
