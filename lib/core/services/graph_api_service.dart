@@ -64,6 +64,7 @@ class GraphApiService {
     if (dateTo != null) params['date_to'] = dateTo;
     if (sort != null) params['sort'] = sort;
     if (limit != null) params['limit'] = limit.toString();
+    params['include_content'] = 'true';
 
     final data = await _get('/notes', params);
     if (data == null) return null;

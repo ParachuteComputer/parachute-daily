@@ -98,6 +98,7 @@ class DailyApiService {
         'date_from': localFrom.toUtc().toIso8601String(),
         'date_to': localTo.toUtc().toIso8601String(),
         'limit': '100',
+        'include_content': 'true',
       },
     );
     debugPrint('[DailyApiService] GET $uri');
