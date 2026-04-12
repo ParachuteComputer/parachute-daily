@@ -19,6 +19,12 @@ import '../models/thing.dart';
 class NoteLocalCache {
   final Database _db;
 
+  /// Bump this when the schema changes or cached data must be invalidated.
+  /// On version mismatch the tables are dropped and recreated — the server
+  /// is the source of truth, so losing the cache is safe (pending ops may be
+  /// lost, but that's preferable to stale data that never self-heals).
+  static const _schemaVersion = 2; // v2: fix stale pending_create + timestamp shift
+
   NoteLocalCache._(this._db);
 
   /// Open (or create) the cache database in the app documents directory.
@@ -41,6 +47,18 @@ class NoteLocalCache {
   }
 
   void _ensureSchema() {
+    // Check stored schema version — drop and recreate on mismatch.
+    _db.execute('CREATE TABLE IF NOT EXISTS _meta (key TEXT PRIMARY KEY, value TEXT)');
+    final rows = _db.select("SELECT value FROM _meta WHERE key = 'schema_version'");
+    final stored = rows.isNotEmpty ? int.tryParse(rows.first['value'] as String? ?? '') ?? 0 : 0;
+
+    if (stored != _schemaVersion) {
+      debugPrint('[NoteLocalCache] schema version $stored → $_schemaVersion — resetting cache');
+      _db.execute('DROP TABLE IF EXISTS attachments');
+      _db.execute('DROP TABLE IF EXISTS notes');
+      _db.execute("INSERT OR REPLACE INTO _meta (key, value) VALUES ('schema_version', '$_schemaVersion')");
+    }
+
     _db.execute('''
       CREATE TABLE IF NOT EXISTS notes (
         id          TEXT PRIMARY KEY,

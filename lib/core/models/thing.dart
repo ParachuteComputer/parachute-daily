@@ -35,6 +35,24 @@ class Note {
 
   // ---- Serialization ----
 
+  /// Parse a timestamp string, treating bare (no Z, no offset) strings as UTC.
+  ///
+  /// The vault server stores timestamps without a Z suffix. Dart's
+  /// DateTime.tryParse treats those as local time, causing a timezone-offset
+  /// shift when the client later calls .toUtc(). Force UTC interpretation so
+  /// cached timestamps match the server's actual values.
+  static DateTime? _parseUtc(String? raw) {
+    if (raw == null) return null;
+    final parsed = DateTime.tryParse(raw);
+    if (parsed == null) return null;
+    if (!raw.endsWith('Z') && !raw.contains('+') && !raw.contains('-', 10)) {
+      return DateTime.utc(parsed.year, parsed.month, parsed.day,
+          parsed.hour, parsed.minute, parsed.second,
+          parsed.millisecond, parsed.microsecond);
+    }
+    return parsed;
+  }
+
   factory Note.fromJson(Map<String, dynamic> json) {
     final now = DateTime.now();
     final createdRaw = json['createdAt'] as String?;
@@ -43,8 +61,8 @@ class Note {
       id: json['id'] as String,
       content: json['content'] as String? ?? '',
       path: json['path'] as String?,
-      createdAt: (createdRaw != null ? DateTime.tryParse(createdRaw) : null) ?? now,
-      updatedAt: updatedRaw != null ? DateTime.tryParse(updatedRaw) : null,
+      createdAt: _parseUtc(createdRaw) ?? now,
+      updatedAt: _parseUtc(updatedRaw),
       metadata: (json['metadata'] as Map<String, dynamic>?) ?? const {},
       tags: (json['tags'] as List<dynamic>?)
               ?.map((t) => t as String)
