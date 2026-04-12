@@ -473,86 +473,21 @@ class _JournalScreenState extends ConsumerState<JournalScreen> with WidgetsBindi
 
   Future<void> _addVoiceEntry(String transcript, String localAudioPath, int duration, DateTime createdAt) async {
     debugPrint('[JournalScreen] Adding voice entry (createdAt: $createdAt)...');
-
-    // Try ingest endpoint first (single atomic request — preferred for beta)
-    final api = ref.read(dailyApiServiceProvider);
-    final mode = await ref.read(transcriptionModeProvider.future);
-    if (!mounted) return;
-
-    // For auto mode: synchronous cached read of the reachability probe.
-    // The probe is an optimization, not a gate — its only job is to let us
-    // skip an ingest attempt we already know will fail. The save path must
-    // never block on it. If the stream has already emitted (e.g. settings
-    // screen had the reachability chip open), we honor that; otherwise we
-    // default to `true` and let the ingest-failure fallback below run
-    // `_addVoiceEntryLocally`, which post-#79 enqueues on-device transcription
-    // via `postHocTranscriptionProvider`. Nothing is lost if the optimistic
-    // default is wrong. See parachute-daily#70 / #73 / #74.
-    final useServerTranscription = switch (mode) {
-      TranscriptionMode.local => false,
-      TranscriptionMode.server => true,
-      TranscriptionMode.auto =>
-        ref.read(transcriptionServiceReachableProvider).valueOrNull ?? true,
-    };
-    if (!mounted) return;
-
-    // Try ingest (handles upload + note creation + transcription atomically)
-    final ingestResult = await api.ingestVoiceMemo(
-      audioFile: File(localAudioPath),
-      createdAt: createdAt,
-      durationSeconds: duration,
-      transcribe: useServerTranscription,
-    );
-
-    if (ingestResult != null && mounted) {
-      debugPrint('[JournalScreen] Ingest succeeded: ${ingestResult.id}, content: ${ingestResult.content.length} chars');
-
-      // Force a full refresh from server — the note is there now.
-      // Don't use _appendEntryToCache because the sync ingest takes long enough
-      // that the journal state may have changed while we were waiting.
-      ref.invalidate(selectedJournalProvider);
-      ref.read(journalRefreshTriggerProvider.notifier).state++;
-
-      if (!useServerTranscription) {
-        // Server stored the audio with empty content (transcribe: false).
-        // Kick off on-device transcription via the post-hoc queue — it'll
-        // PATCH the entry with the transcript when complete and clean up
-        // the staged audio file. Fires for TranscriptionMode.local AND for
-        // auto-mode when the transcription service is unreachable.
-        // See parachute-daily#72.
-        debugPrint('[JournalScreen] Enqueuing on-device transcription for ${ingestResult.id}');
-        ref.read(postHocTranscriptionProvider.notifier).enqueue(
-          entryId: ingestResult.id,
-          audioPath: localAudioPath,
-          durationSeconds: duration,
-        );
-      } else {
-        // Server did the transcription atomically — safe to clean up now.
-        try { await File(localAudioPath).delete(); } catch (_) {}
-      }
-      return;
-    }
-
-    // Ingest failed — fall back to local flow. Thread through the mode flag
-    // so the fallback can also enqueue on-device transcription when needed.
-    debugPrint('[JournalScreen] Ingest failed, falling back to local');
     await _addVoiceEntryLocally(
       transcript,
       localAudioPath,
       duration,
       createdAt,
-      useServerTranscription: useServerTranscription,
     );
   }
 
-  /// Fallback local flow: upload audio asset, create entry, let on-device transcription handle it.
+  /// Upload audio asset, create entry, enqueue on-device transcription.
   Future<void> _addVoiceEntryLocally(
     String transcript,
     String localAudioPath,
     int duration,
-    DateTime createdAt, {
-    required bool useServerTranscription,
-  }) async {
+    DateTime createdAt,
+  ) async {
     final api = ref.read(dailyApiServiceProvider);
 
     // Try to upload audio to server first
@@ -574,7 +509,6 @@ class _JournalScreenState extends ConsumerState<JournalScreen> with WidgetsBindi
       if (!mounted) return;
 
       if (entry != null) {
-        // Both upload and entry creation succeeded
         await _appendEntryToCache(
           entry,
           content: transcript,
@@ -583,25 +517,13 @@ class _JournalScreenState extends ConsumerState<JournalScreen> with WidgetsBindi
           durationSeconds: duration,
         );
 
-        if (!useServerTranscription) {
-          // Vault server is reachable enough for ingest fallback to upload
-          // and create the entry, but the user wants on-device transcription
-          // (local mode) or the transcription service is unreachable (auto
-          // falling back). Enqueue post-hoc — it owns the staged file lifecycle.
-          // See parachute-daily#72.
-          debugPrint('[JournalScreen] Enqueuing on-device transcription for ${entry.id} (fallback path)');
-          ref.read(postHocTranscriptionProvider.notifier).enqueue(
-            entryId: entry.id,
-            audioPath: localAudioPath,
-            durationSeconds: duration,
-          );
-        } else {
-          try {
-            await File(localAudioPath).delete();
-          } catch (e) {
-            debugPrint('[JournalScreen] Failed to delete staged audio: $e');
-          }
-        }
+        // Enqueue on-device transcription — it owns the staged file lifecycle.
+        debugPrint('[JournalScreen] Enqueuing on-device transcription for ${entry.id}');
+        ref.read(postHocTranscriptionProvider.notifier).enqueue(
+          entryId: entry.id,
+          audioPath: localAudioPath,
+          durationSeconds: duration,
+        );
       } else {
         // Upload succeeded but entry creation failed — queue with server path so audio
         // is not re-uploaded, then clean up the local staged file.

@@ -235,7 +235,7 @@ class PostHocTranscriptionNotifier extends StateNotifier<PostHocTranscriptionSta
 
       // Mark job as failed — staged file will be cleaned up in the finally
       // block below. The server still has its own copy of the audio (stored
-      // at ingest/uploadAudio time before this job was enqueued), so manual
+      // at uploadAudio time before this job was enqueued), so manual
       // re-transcribe can pull it back if the user wants to retry.
       await _tracker.failJob(entryId);
 
@@ -270,7 +270,7 @@ class PostHocTranscriptionNotifier extends StateNotifier<PostHocTranscriptionSta
       _service = null;
 
       // Clean up the staged audio file regardless of outcome. Safe because
-      // the server has its own copy (ingest or uploadAudio stored it before
+      // the server has its own copy (uploadAudio stored it before
       // enqueue) — manual re-transcribe can pull the audio back from the
       // server if the user wants to retry after a permanent failure. Only
       // the crash-recovery path may leave files behind; `restartIncompleteJobs`

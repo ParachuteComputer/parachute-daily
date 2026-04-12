@@ -302,10 +302,9 @@ class _JournalInputBarState extends ConsumerState<JournalInputBar>
       debugPrint('[JournalInputBar] Daily recording stopped, audio at: $audioPath');
 
       // Hand the recording off to the screen. JournalScreen's
-      // `_addVoiceEntry` handles ingest + on-device transcription enqueue
-      // (post-hoc) when the server isn't doing transcription itself. It
-      // has access to the entry id returned from ingest, which this widget
-      // does not.
+      // `_addVoiceEntry` handles upload + note creation + on-device
+      // transcription enqueue. It has access to the entry id, which
+      // this widget does not.
       if (widget.onVoiceRecorded != null) {
         await widget.onVoiceRecorded!('', audioPath, durationSeconds, createdAt);
       }

@@ -240,7 +240,7 @@ Future<void> _flushPendingOps(
     final pendingCreates = cache.getPendingCreates();
     for (final note in pendingCreates) {
       final audioPath = cache.getAudioPath(note.id);
-      // Voice notes with local audio: use ingest endpoint (atomic)
+      // Voice notes with local audio: upload then create note with attachment
       if (audioPath != null && audioPath.startsWith('/')) {
         final audioFile = File(audioPath);
         if (!await audioFile.exists()) {
@@ -248,20 +248,35 @@ Future<void> _flushPendingOps(
           continue;
         }
 
-        final serverNote = await api.ingestVoiceMemo(
-          audioFile: audioFile,
+        final serverPath = await api.uploadAudio(audioFile);
+        if (serverPath == null) {
+          debugPrint('[FlushOps] Audio upload pending for ${note.id}');
+          continue;
+        }
+
+        final tags = note.tags.isNotEmpty ? note.tags : ['captured'];
+        final serverNote = await api.createNote(
+          content: note.content,
+          tags: tags,
           createdAt: note.createdAt,
-          durationSeconds: 0, // Duration not stored in pending note
-          transcribe: note.content.isEmpty, // Transcribe if no content yet
         );
 
         if (serverNote != null) {
+          final ext = audioPath.split('.').last.toLowerCase();
+          final mime = switch (ext) {
+            'ogg' || 'opus' => 'audio/ogg',
+            'wav' => 'audio/wav',
+            'mp3' => 'audio/mpeg',
+            'm4a' || 'mp4' => 'audio/mp4',
+            _ => 'audio/ogg',
+          };
+          await api.addAttachment(serverNote.id, serverPath, mime);
           cache.removeNote(note.id);
           cache.putNotes([serverNote]);
           try { await audioFile.delete(); } catch (_) {}
-          debugPrint('[FlushOps] Ingested ${note.id} → ${serverNote.id}');
+          debugPrint('[FlushOps] Flushed voice ${note.id} → ${serverNote.id}');
         } else {
-          debugPrint('[FlushOps] Ingest pending for ${note.id}');
+          debugPrint('[FlushOps] Create pending for ${note.id}');
         }
         continue;
       }

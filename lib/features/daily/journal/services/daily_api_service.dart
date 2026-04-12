@@ -214,72 +214,7 @@ class DailyApiService {
   }
 
   // ===========================================================================
-  // Ingest (preferred for voice memos — single atomic request)
-  // ===========================================================================
-
-  /// Ingest a voice memo via the unified /api/ingest endpoint.
-  ///
-  /// Sends audio file, tags, metadata, and optionally requests server-side
-  /// transcription. Returns the created Note with transcript if available.
-  /// This replaces the multi-step upload→create→attach→transcribe flow.
-  Future<Note?> ingestVoiceMemo({
-    required File audioFile,
-    required DateTime createdAt,
-    required int durationSeconds,
-    bool transcribe = true,
-    String? deviceInfo,
-  }) async {
-    final uri = Uri.parse('$baseUrl$_apiPrefix/ingest');
-    debugPrint('[DailyApiService] POST $uri (ingest voice memo)');
-    try {
-      final request = http.MultipartRequest('POST', uri);
-      if (apiKey != null && apiKey!.isNotEmpty) {
-        request.headers['Authorization'] = 'Bearer $apiKey';
-      }
-
-      // Audio file
-      request.files.add(await http.MultipartFile.fromPath('file', audioFile.path));
-
-      // Fields
-      request.fields['created_at'] = createdAt.toIso8601String();
-      request.fields['tags'] = 'captured';
-      request.fields['transcribe'] = transcribe.toString();
-      if (transcribe) request.fields['sync'] = 'true';
-      request.fields['metadata'] = jsonEncode({
-        'source': 'voice-memo',
-        'duration_seconds': durationSeconds,
-        if (deviceInfo != null) 'device': deviceInfo,
-      });
-
-      final streamed = await request.send().timeout(
-        const Duration(seconds: 120), // Transcription can take a while
-      );
-
-      if (streamed.statusCode >= 200 && streamed.statusCode < 300) {
-        onReachabilityChanged?.call(true);
-        final body = await streamed.stream.bytesToString();
-        final data = jsonDecode(body) as Map<String, dynamic>;
-
-        // The response may have { note: {...}, attachment: {...}, transcription: {...} }
-        // or just the note directly
-        final noteJson = data.containsKey('note')
-            ? data['note'] as Map<String, dynamic>
-            : data;
-        return Note.fromJson(noteJson);
-      }
-
-      debugPrint('[DailyApiService] ingest ${streamed.statusCode}');
-      onReachabilityChanged?.call(true);
-      return null;
-    } catch (e) {
-      debugPrint('[DailyApiService] ingestVoiceMemo error: $e');
-      onReachabilityChanged?.call(false);
-      return null;
-    }
-  }
-
-  // ===========================================================================
-  // Audio & Voice (legacy — use ingestVoiceMemo for new recordings)
+  // Audio & Voice
   // ===========================================================================
 
   /// Upload an audio file to the server.
