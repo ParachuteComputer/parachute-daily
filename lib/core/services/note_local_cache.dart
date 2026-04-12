@@ -239,10 +239,13 @@ class NoteLocalCache {
 
   /// Batch-upsert notes from server into the cache.
   ///
-  /// Preserves locally-pending mutations:
+  /// Preserves locally-pending mutations — with one exception:
   /// - pending_delete rows keep their sync_state
   /// - pending_edit rows keep their content and sync_state
-  /// - pending_create rows are not overwritten (shouldn't happen, but safe)
+  /// - pending_create rows keep their content ONLY if the server's content
+  ///   is empty; if the server returns non-empty content for a pending_create
+  ///   ID, the server wins and the row is promoted to synced (the server
+  ///   already has the authoritative version).
   void putNotes(List<Note> notes) {
     if (notes.isEmpty) return;
     PreparedStatement? stmt;
@@ -251,12 +254,26 @@ class NoteLocalCache {
         'INSERT INTO notes (id, content, path, created_at, updated_at, tags_json, sync_state) '
         "VALUES (?, ?, ?, ?, ?, ?, 'synced') "
         'ON CONFLICT(id) DO UPDATE SET '
-        "  content    = CASE WHEN sync_state IN ('pending_edit', 'pending_create') THEN content    ELSE excluded.content    END, "
-        "  path       = CASE WHEN sync_state IN ('pending_edit', 'pending_create') THEN path       ELSE excluded.path       END, "
+        // pending_edit: always preserve local content (user's edits).
+        // pending_create: preserve local content only if server sent empty
+        //   content — otherwise the server has the real transcript and the
+        //   local pending_create is stale.
+        "  content    = CASE "
+        "    WHEN sync_state = 'pending_edit' THEN content "
+        "    WHEN sync_state = 'pending_create' AND length(excluded.content) > 0 THEN excluded.content "
+        "    WHEN sync_state = 'pending_create' THEN content "
+        "    ELSE excluded.content END, "
+        "  path       = CASE WHEN sync_state IN ('pending_edit') THEN path ELSE excluded.path END, "
         '  created_at = excluded.created_at, '
         '  updated_at = excluded.updated_at, '
-        "  tags_json  = CASE WHEN sync_state IN ('pending_edit', 'pending_create') THEN tags_json  ELSE excluded.tags_json  END, "
-        "  sync_state = CASE WHEN sync_state IN ('pending_delete', 'pending_edit', 'pending_create') THEN sync_state ELSE 'synced' END",
+        "  tags_json  = CASE WHEN sync_state IN ('pending_edit') THEN tags_json ELSE excluded.tags_json END, "
+        // Promote pending_create to synced when server has non-empty content
+        "  sync_state = CASE "
+        "    WHEN sync_state = 'pending_delete' THEN sync_state "
+        "    WHEN sync_state = 'pending_edit' THEN sync_state "
+        "    WHEN sync_state = 'pending_create' AND length(excluded.content) > 0 THEN 'synced' "
+        "    WHEN sync_state = 'pending_create' THEN sync_state "
+        "    ELSE 'synced' END",
       );
       for (final note in notes) {
         stmt.execute([
