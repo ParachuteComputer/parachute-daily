@@ -50,18 +50,41 @@ class TtsApiService {
   }
 
   /// Check if the TTS endpoint is reachable.
+  ///
+  /// Tries multiple strategies since different services expose different
+  /// health endpoints:
+  /// 1. GET /health (parachute-narrate)
+  /// 2. GET /v1/models (OpenAI)
+  /// 3. HEAD on base URL (fallback)
   Future<bool> checkConnection() async {
-    try {
-      final uri = Uri.parse('$baseUrl/v1/models');
-      final headers = <String, String>{
-        if (apiKey != null && apiKey!.isNotEmpty)
-          'Authorization': 'Bearer $apiKey',
-      };
+    final headers = <String, String>{
+      if (apiKey != null && apiKey!.isNotEmpty)
+        'Authorization': 'Bearer $apiKey',
+    };
+    const timeout = Duration(seconds: 5);
 
-      final response = await _client.get(uri, headers: headers).timeout(
-        const Duration(seconds: 5),
-      );
-      return response.statusCode == 200;
+    try {
+      // Try /health first (parachute-narrate)
+      try {
+        final resp = await _client
+            .get(Uri.parse('$baseUrl/health'), headers: headers)
+            .timeout(timeout);
+        if (resp.statusCode == 200) return true;
+      } catch (_) {}
+
+      // Try /v1/models (OpenAI)
+      try {
+        final resp = await _client
+            .get(Uri.parse('$baseUrl/v1/models'), headers: headers)
+            .timeout(timeout);
+        if (resp.statusCode == 200) return true;
+      } catch (_) {}
+
+      // Fallback: HEAD on base URL
+      final req = http.Request('HEAD', Uri.parse(baseUrl));
+      req.headers.addAll(headers);
+      final resp = await _client.send(req).timeout(timeout);
+      return resp.statusCode < 500;
     } catch (e) {
       debugPrint('[TtsApi] Connection check failed: $e');
       return false;
