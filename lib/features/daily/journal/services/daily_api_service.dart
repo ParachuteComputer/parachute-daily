@@ -245,9 +245,14 @@ class DailyApiService {
   }
 
   /// Upload audio and create a voice note with attachment.
+  ///
+  /// [content] is the transcript text (from Scribe or on-device). The note
+  /// is created with this content so the vault stores a fully-formed note
+  /// rather than relying on triggers for transcription.
   Future<Note?> uploadVoiceNote({
     required File audioFile,
     required int durationSeconds,
+    String content = '',
     String? date,
     String? replaceNoteId,
   }) async {
@@ -260,16 +265,13 @@ class DailyApiService {
       await deleteNote(replaceNoteId);
     }
 
-    // Create a note tagged daily + voice
+    // Create note with transcript content
     final note = await createNote(
-      content: '',
+      content: content,
       tags: ['captured'],
     );
 
-    // Attach the audio file to the note. Infer mime from the uploaded
-    // file extension so we don't hardcode audio/wav after the Opus
-    // migration — voice memos are .ogg now, older callers may pass
-    // other formats, and the server's storage layer already normalizes.
+    // Attach the audio file to the note
     if (note != null && audioPath.isNotEmpty) {
       final ext = audioPath.split('.').last.toLowerCase();
       final mime = switch (ext) {
