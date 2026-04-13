@@ -7,10 +7,8 @@ import 'package:parachute/core/providers/app_state_provider.dart'
 import 'package:parachute/core/providers/feature_flags_provider.dart';
 import 'package:parachute/core/services/backend_health_service.dart';
 import 'package:parachute/core/services/graph_api_service.dart';
-import 'package:parachute/core/services/transcription_api_service.dart';
-import 'package:parachute/features/daily/recorder/providers/service_providers.dart';
 
-/// Server connection settings section with vault picker and transcription config.
+/// Server connection settings section — vault URL, API key, vault picker.
 class ServerSettingsSection extends ConsumerStatefulWidget {
   const ServerSettingsSection({super.key});
 
@@ -21,13 +19,10 @@ class ServerSettingsSection extends ConsumerStatefulWidget {
 class _ServerSettingsSectionState extends ConsumerState<ServerSettingsSection> {
   final _serverUrlController = TextEditingController();
   final _apiKeyController = TextEditingController();
-  final _transcriptionUrlController = TextEditingController();
-  final _transcriptionApiKeyController = TextEditingController();
 
   List<String>? _availableVaults;
   String? _selectedVault;
   bool _loadingVaults = false;
-  bool _useCustomTranscription = false;
 
   @override
   void initState() {
@@ -39,8 +34,6 @@ class _ServerSettingsSectionState extends ConsumerState<ServerSettingsSection> {
   void dispose() {
     _serverUrlController.dispose();
     _apiKeyController.dispose();
-    _transcriptionUrlController.dispose();
-    _transcriptionApiKeyController.dispose();
     super.dispose();
   }
 
@@ -49,24 +42,12 @@ class _ServerSettingsSectionState extends ConsumerState<ServerSettingsSection> {
     final serverUrl = await featureFlags.getAiServerUrl();
     final apiKey = ref.read(apiKeyProvider).valueOrNull;
     final vaultName = ref.read(vaultNameProvider).valueOrNull;
-    final transcriptionUrl =
-        await ref.read(transcriptionServiceUrlProvider.future);
-    final transcriptionApiKey =
-        await ref.read(transcriptionServiceApiKeyProvider.future);
 
     if (mounted) {
       setState(() {
         _serverUrlController.text = serverUrl;
         if (apiKey != null) _apiKeyController.text = apiKey;
         _selectedVault = vaultName;
-        _useCustomTranscription =
-            transcriptionUrl != null && transcriptionUrl.isNotEmpty;
-        if (transcriptionUrl != null) {
-          _transcriptionUrlController.text = transcriptionUrl;
-        }
-        if (transcriptionApiKey != null) {
-          _transcriptionApiKeyController.text = transcriptionApiKey;
-        }
       });
 
       // Fetch vaults if we have a URL
@@ -157,30 +138,9 @@ class _ServerSettingsSectionState extends ConsumerState<ServerSettingsSection> {
         .setVaultName(name == null || name.isEmpty ? null : name);
   }
 
-  Future<void> _saveTranscriptionUrl() async {
-    final url = _transcriptionUrlController.text.trim();
-    await setTranscriptionServiceUrl(url.isEmpty ? null : url);
-    ref.invalidate(transcriptionServiceUrlProvider);
-  }
-
-  Future<void> _saveTranscriptionApiKey() async {
-    final key = _transcriptionApiKeyController.text.trim();
-    await ref
-        .read(transcriptionServiceApiKeyProvider.notifier)
-        .setApiKey(key.isEmpty ? null : key);
-  }
-
   Future<void> _saveAll() async {
     await _saveServerUrl();
     await _saveApiKey(showSnackbar: false);
-    if (_useCustomTranscription) {
-      await _saveTranscriptionUrl();
-      await _saveTranscriptionApiKey();
-    } else {
-      // Clear custom transcription when using vault
-      await setTranscriptionServiceUrl(null);
-      ref.invalidate(transcriptionServiceUrlProvider);
-    }
   }
 
   Future<void> _testServerConnection() async {
@@ -220,33 +180,14 @@ class _ServerSettingsSectionState extends ConsumerState<ServerSettingsSection> {
     try {
       final status = await healthService.checkHealth();
 
-      // Also test transcription endpoint
-      final transcriptionUrl = _useCustomTranscription
-          ? _transcriptionUrlController.text.trim()
-          : url;
-      final transcriptionKey = _useCustomTranscription
-          ? _transcriptionApiKeyController.text.trim()
-          : _apiKeyController.text.trim();
-      final transcriptionService = TranscriptionApiService(
-        baseUrl: transcriptionUrl,
-        apiKey: transcriptionKey.isEmpty ? null : transcriptionKey,
-      );
-      final transcriptionResult = await transcriptionService.checkConnection();
-      transcriptionService.dispose();
-
       if (mounted) {
         ScaffoldMessenger.of(context).clearSnackBars();
         if (status.isHealthy) {
-          final transcriptionMsg = transcriptionResult.authOk
-              ? ' · Transcription ready'
-              : transcriptionResult.reachable
-                  ? ' · Transcription auth failed'
-                  : '';
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(status.serverVersion != null
-                  ? 'Connected to Parachute Computer v${status.serverVersion}$transcriptionMsg'
-                  : 'Connected to Parachute Computer$transcriptionMsg'),
+                  ? 'Connected to Parachute Computer v${status.serverVersion}'
+                  : 'Connected to Parachute Computer'),
               backgroundColor: BrandColors.success,
             ),
           );
@@ -301,7 +242,7 @@ class _ServerSettingsSectionState extends ConsumerState<ServerSettingsSection> {
         ),
         SizedBox(height: Spacing.sm),
         Text(
-          'Connect to a Parachute Vault for sync, search, and transcription. '
+          'Connect to a Parachute Vault for sync and search. '
           'Leave empty for offline mode.',
           style: TextStyle(
             fontSize: TypographyTokens.bodySmall,
@@ -356,16 +297,6 @@ class _ServerSettingsSectionState extends ConsumerState<ServerSettingsSection> {
 
         // Vault picker
         _buildVaultPicker(isDark),
-        SizedBox(height: Spacing.lg),
-
-        // Transcription toggle
-        _buildTranscriptionToggle(isDark),
-
-        // Custom transcription fields (collapsed by default)
-        if (_useCustomTranscription) ...[
-          SizedBox(height: Spacing.md),
-          _buildCustomTranscriptionFields(),
-        ],
         SizedBox(height: Spacing.lg),
 
         // Action buttons
@@ -423,7 +354,7 @@ class _ServerSettingsSectionState extends ConsumerState<ServerSettingsSection> {
     }
 
     return DropdownButtonFormField<String>(
-      value: _selectedVault,
+      initialValue: _selectedVault,
       decoration: const InputDecoration(
         labelText: 'Vault',
         border: OutlineInputBorder(),
@@ -440,93 +371,6 @@ class _ServerSettingsSectionState extends ConsumerState<ServerSettingsSection> {
             )),
       ],
       onChanged: (name) => _saveVaultName(name),
-    );
-  }
-
-  Widget _buildTranscriptionToggle(bool isDark) {
-    return Row(
-      children: [
-        Icon(
-          Icons.record_voice_over,
-          size: 18,
-          color: isDark ? BrandColors.nightTextSecondary : BrandColors.driftwood,
-        ),
-        SizedBox(width: Spacing.sm),
-        Expanded(
-          child: Text(
-            _useCustomTranscription
-                ? 'Using custom transcription endpoint'
-                : 'Transcription via this server',
-            style: TextStyle(
-              fontSize: TypographyTokens.bodySmall,
-              color:
-                  isDark ? BrandColors.nightText : BrandColors.charcoal,
-            ),
-          ),
-        ),
-        TextButton(
-          onPressed: () {
-            setState(() {
-              _useCustomTranscription = !_useCustomTranscription;
-            });
-            if (!_useCustomTranscription) {
-              // Clear custom URL when switching back to vault
-              _transcriptionUrlController.clear();
-              _transcriptionApiKeyController.clear();
-              _saveTranscriptionUrl();
-              _saveTranscriptionApiKey();
-            }
-          },
-          child: Text(
-            _useCustomTranscription ? 'Use server' : 'Custom endpoint',
-            style: const TextStyle(fontSize: 12),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildCustomTranscriptionFields() {
-    return Column(
-      children: [
-        TextField(
-          controller: _transcriptionUrlController,
-          decoration: InputDecoration(
-            labelText: 'Transcription URL',
-            hintText: 'https://api.groq.com/openai',
-            border: const OutlineInputBorder(),
-            prefixIcon: const Icon(Icons.link),
-            suffixIcon: IconButton(
-              icon: const Icon(Icons.clear),
-              onPressed: () {
-                _transcriptionUrlController.clear();
-                _saveTranscriptionUrl();
-              },
-            ),
-          ),
-          keyboardType: TextInputType.url,
-          onSubmitted: (_) => _saveTranscriptionUrl(),
-        ),
-        SizedBox(height: Spacing.md),
-        TextField(
-          controller: _transcriptionApiKeyController,
-          decoration: InputDecoration(
-            labelText: 'Transcription API Key',
-            hintText: 'sk-...',
-            border: const OutlineInputBorder(),
-            prefixIcon: const Icon(Icons.key),
-            suffixIcon: IconButton(
-              icon: const Icon(Icons.clear),
-              onPressed: () {
-                _transcriptionApiKeyController.clear();
-                _saveTranscriptionApiKey();
-              },
-            ),
-          ),
-          obscureText: true,
-          onSubmitted: (_) => _saveTranscriptionApiKey(),
-        ),
-      ],
     );
   }
 }

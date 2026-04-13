@@ -199,7 +199,7 @@ class _TranscriptionServiceSectionState
         TextField(
           controller: _apiKeyController,
           decoration: InputDecoration(
-            labelText: 'API Key',
+            labelText: 'API Key (optional)',
             hintText: 'sk-...',
             border: const OutlineInputBorder(),
             prefixIcon: const Icon(Icons.key),
