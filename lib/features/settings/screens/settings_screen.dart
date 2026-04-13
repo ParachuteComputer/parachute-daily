@@ -7,6 +7,7 @@ import '../widgets/server_settings_section.dart';
 import '../widgets/transcription_settings_section.dart';
 import '../widgets/about_section.dart';
 import '../widgets/settings_card.dart';
+import '../widgets/tts_service_section.dart';
 
 /// Settings screen for Parachute Daily v2
 ///
@@ -49,6 +50,13 @@ class SettingsScreen extends ConsumerWidget {
           SettingsCard(
             isDark: isDark,
             child: const TranscriptionSettingsSection(),
+          ),
+
+          // TTS (Read Aloud / Narrate)
+          SizedBox(height: Spacing.xl),
+          SettingsCard(
+            isDark: isDark,
+            child: const TtsServiceSection(),
           ),
 
           // Omi Device (iOS/Android only)

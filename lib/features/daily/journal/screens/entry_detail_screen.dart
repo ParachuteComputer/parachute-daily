@@ -4,6 +4,7 @@ import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:parachute/core/theme/design_tokens.dart';
 import 'package:parachute/core/widgets/note_links_section.dart';
+import 'package:parachute/core/widgets/read_aloud_button.dart';
 import 'package:parachute/core/widgets/tag_picker.dart';
 import 'package:parachute/core/widgets/wikilink_handler.dart';
 import 'package:parachute/core/widgets/wikilink_syntax.dart';
@@ -278,24 +279,28 @@ class _EntryDetailScreenState extends ConsumerState<EntryDetailScreen> {
               ),
             ),
           )
-        else if (widget.entry != null &&
-            widget.entry!.id != 'preamble' &&
-            !widget.entry!.id.startsWith('plain_'))
-          Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: TextButton.icon(
-              onPressed: _enterEditMode,
-              icon: Icon(Icons.edit, size: 18, color: BrandColors.forest),
-              label: Text(
-                'Edit',
-                style: TextStyle(
-                  color: BrandColors.forest,
-                  fontWeight: FontWeight.w600,
-                  fontSize: 16,
+        else ...[
+          if (widget.entry != null && widget.entry!.content.isNotEmpty)
+            ReadAloudButton(text: widget.entry!.content),
+          if (widget.entry != null &&
+              widget.entry!.id != 'preamble' &&
+              !widget.entry!.id.startsWith('plain_'))
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: TextButton.icon(
+                onPressed: _enterEditMode,
+                icon: Icon(Icons.edit, size: 18, color: BrandColors.forest),
+                label: Text(
+                  'Edit',
+                  style: TextStyle(
+                    color: BrandColors.forest,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 16,
+                  ),
                 ),
               ),
             ),
-          ),
+        ],
       ],
     );
   }

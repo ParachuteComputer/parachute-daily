@@ -23,6 +23,7 @@ class JournalEntryCard extends ConsumerWidget {
   final VoidCallback? onDelete;
   final VoidCallback? onTranscribe;
   final VoidCallback? onEnhance;
+  final VoidCallback? onReadAloud;
 
   const JournalEntryCard({
     super.key,
@@ -33,6 +34,7 @@ class JournalEntryCard extends ConsumerWidget {
     this.onDelete,
     this.onTranscribe,
     this.onEnhance,
+    this.onReadAloud,
   });
 
   /// Check if this is imported markdown content (no para:ID)
@@ -379,6 +381,9 @@ class JournalEntryCard extends ConsumerWidget {
           case 'edit':
             onEdit?.call();
             break;
+          case 'read_aloud':
+            onReadAloud?.call();
+            break;
           case 'delete':
             onDelete?.call();
             break;
@@ -395,6 +400,17 @@ class JournalEntryCard extends ConsumerWidget {
             ],
           ),
         ),
+        if (onReadAloud != null && entry.content.isNotEmpty)
+          const PopupMenuItem(
+            value: 'read_aloud',
+            child: Row(
+              children: [
+                Icon(Icons.volume_up_outlined, size: 18),
+                SizedBox(width: 8),
+                Text('Read aloud'),
+              ],
+            ),
+          ),
         PopupMenuItem(
           value: 'delete',
           child: Row(

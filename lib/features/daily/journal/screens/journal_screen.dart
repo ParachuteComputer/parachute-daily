@@ -8,7 +8,8 @@ import 'package:path_provider/path_provider.dart';
 import 'package:parachute/core/config/app_config.dart';
 import 'package:parachute/core/theme/design_tokens.dart';
 import 'package:parachute/core/providers/backend_health_provider.dart'
-    show transcriptionApiServiceProvider, transcriptionServiceReachableProvider;
+    show transcriptionApiServiceProvider, transcriptionServiceReachableProvider, ttsApiServiceProvider;
+import 'package:parachute/core/widgets/read_aloud_button.dart' show readAloudFromContext;
 import 'package:parachute/core/providers/app_state_provider.dart' show apiKeyProvider;
 import 'package:parachute/core/providers/feature_flags_provider.dart' show aiServerUrlProvider;
 import 'package:parachute/core/providers/connectivity_provider.dart' show isServerAvailableProvider;
@@ -1237,6 +1238,15 @@ class _JournalScreenState extends ConsumerState<JournalScreen> with WidgetsBindi
                 onTap: () {
                   Navigator.pop(context);
                   _copyEntryContent(entry);
+                },
+              ),
+            if (entry.content.isNotEmpty && ref.read(ttsApiServiceProvider) != null)
+              ListTile(
+                leading: Icon(Icons.volume_up_outlined, color: BrandColors.turquoise),
+                title: const Text('Read aloud'),
+                onTap: () {
+                  Navigator.pop(context);
+                  readAloudFromContext(context: this.context, ref: ref, text: entry.content);
                 },
               ),
             ListTile(

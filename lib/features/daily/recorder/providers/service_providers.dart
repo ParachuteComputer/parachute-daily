@@ -13,6 +13,8 @@ const String _autoEnhanceKey = 'auto_enhance';
 const String _transcriptionModeKey = 'transcription_mode';
 const String _transcriptionServiceUrlKey = 'transcription_service_url';
 const String _transcriptionServiceApiKeyKey = 'transcription_service_api_key';
+const String _ttsServiceUrlKey = 'tts_service_url';
+const String _ttsServiceApiKeyKey = 'tts_service_api_key';
 
 /// Transcription mode: where voice entries get transcribed.
 ///
@@ -119,6 +121,65 @@ final isTranscriptionServiceConfiguredProvider = Provider<bool>((ref) {
   final urlAsync = ref.watch(transcriptionServiceUrlProvider);
   final url = urlAsync.valueOrNull;
   return url != null && url.isNotEmpty;
+});
+
+// ===========================================================================
+// TTS (Narrate) Service
+// ===========================================================================
+
+/// Provider for TTS service URL (Narrate endpoint)
+final ttsServiceUrlProvider = FutureProvider<String?>((ref) async {
+  final prefs = await SharedPreferences.getInstance();
+  return prefs.getString(_ttsServiceUrlKey);
+});
+
+/// Set TTS service URL
+Future<void> setTtsServiceUrl(String? url) async {
+  final prefs = await SharedPreferences.getInstance();
+  if (url != null && url.isNotEmpty) {
+    await prefs.setString(_ttsServiceUrlKey, url);
+  } else {
+    await prefs.remove(_ttsServiceUrlKey);
+  }
+}
+
+/// Notifier for TTS service API key with secure storage.
+class TtsApiKeyNotifier extends AsyncNotifier<String?> {
+  static const _secureStorage = FlutterSecureStorage();
+
+  @override
+  Future<String?> build() async {
+    final secureKey = await _secureStorage.read(key: _ttsServiceApiKeyKey);
+    if (secureKey != null) return secureKey;
+
+    // Migrate from SharedPreferences if present
+    final prefs = await SharedPreferences.getInstance();
+    final legacyKey = prefs.getString(_ttsServiceApiKeyKey);
+    if (legacyKey != null) {
+      await _secureStorage.write(key: _ttsServiceApiKeyKey, value: legacyKey);
+      await prefs.remove(_ttsServiceApiKeyKey);
+      debugPrint('[TtsApiKey] Migrated from SharedPreferences to secure storage');
+      return legacyKey;
+    }
+
+    return null;
+  }
+
+  Future<void> setApiKey(String? key) async {
+    if (key != null && key.isNotEmpty) {
+      await _secureStorage.write(key: _ttsServiceApiKeyKey, value: key);
+      state = AsyncData(key);
+    } else {
+      await _secureStorage.delete(key: _ttsServiceApiKeyKey);
+      state = const AsyncData(null);
+    }
+  }
+}
+
+/// Provider for TTS service API key (secure storage)
+final ttsServiceApiKeyProvider =
+    AsyncNotifierProvider<TtsApiKeyNotifier, String?>(() {
+  return TtsApiKeyNotifier();
 });
 
 /// Provider for AudioService
