@@ -281,7 +281,7 @@ class _EntryDetailScreenState extends ConsumerState<EntryDetailScreen> {
           )
         else ...[
           if (widget.entry != null && widget.entry!.content.isNotEmpty)
-            ReadAloudButton(text: widget.entry!.content),
+            ReadAloudButton(text: widget.entry!.content, noteId: widget.entry!.id),
           if (widget.entry != null &&
               widget.entry!.id != 'preamble' &&
               !widget.entry!.id.startsWith('plain_'))

@@ -35,6 +35,7 @@ dependencies:
 
   # Utilities
   collection: ^1.18.0
+  crypto: ^3.0.0
   http: ^1.2.0
   archive: ^3.6.1
 

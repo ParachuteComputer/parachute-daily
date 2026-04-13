@@ -195,7 +195,7 @@ class _NoteDetailScreenState extends ConsumerState<NoteDetailScreen> {
               )
             else ...[
               if (_note.content.isNotEmpty)
-                ReadAloudButton(text: _note.content),
+                ReadAloudButton(text: _note.content, noteId: _note.id),
               IconButton(
                 icon: const Icon(Icons.edit_outlined),
                 onPressed: () => setState(() {

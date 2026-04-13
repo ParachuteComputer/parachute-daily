@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:parachute/core/models/thing.dart';
+import 'package:parachute/core/providers/backend_health_provider.dart'
+    show ttsApiServiceProvider;
 import 'package:parachute/core/screens/note_detail_screen.dart';
 import 'package:parachute/core/theme/design_tokens.dart';
+import 'package:parachute/core/widgets/read_aloud_button.dart'
+    show readAloudFromContext;
 import 'package:parachute/features/daily/journal/providers/journal_providers.dart';
 import 'package:parachute/features/vault/providers/vault_providers.dart';
 import '../providers/digest_providers.dart';
@@ -418,9 +422,30 @@ class _DigestCard extends ConsumerWidget {
               await _togglePin(context, ref);
             case 'archive':
               await _toggleArchive(context, ref);
+            case 'read_aloud':
+              if (context.mounted) {
+                readAloudFromContext(
+                  context: context,
+                  ref: ref,
+                  text: note.content,
+                  noteId: note.id,
+                );
+              }
           }
         },
         itemBuilder: (context) => [
+          if (note.content.isNotEmpty &&
+              ref.read(ttsApiServiceProvider) != null)
+            PopupMenuItem(
+              value: 'read_aloud',
+              child: Row(
+                children: [
+                  Icon(Icons.volume_up_outlined, size: 18, color: BrandColors.turquoise),
+                  const SizedBox(width: 12),
+                  const Text('Read aloud'),
+                ],
+              ),
+            ),
           PopupMenuItem(
             value: 'pin',
             child: Row(

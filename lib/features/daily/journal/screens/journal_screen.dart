@@ -1246,7 +1246,7 @@ class _JournalScreenState extends ConsumerState<JournalScreen> with WidgetsBindi
                 title: const Text('Read aloud'),
                 onTap: () {
                   Navigator.pop(context);
-                  readAloudFromContext(context: this.context, ref: ref, text: entry.content);
+                  readAloudFromContext(context: this.context, ref: ref, text: entry.content, noteId: entry.id);
                 },
               ),
             ListTile(

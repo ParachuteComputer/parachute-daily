@@ -6,6 +6,7 @@ import 'package:just_audio/just_audio.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:parachute/core/providers/backend_health_provider.dart'
     show ttsApiServiceProvider;
+import 'package:parachute/core/services/tts_audio_cache.dart';
 import 'package:parachute/core/theme/design_tokens.dart';
 
 enum _TtsPhase { idle, synthesizing, playing }
@@ -17,8 +18,10 @@ enum _TtsPhase { idle, synthesizing, playing }
 /// and time display below the trigger button area.
 class ReadAloudButton extends ConsumerStatefulWidget {
   final String text;
+  /// When provided, audio is cached on device keyed by noteId + content hash.
+  final String? noteId;
 
-  const ReadAloudButton({super.key, required this.text});
+  const ReadAloudButton({super.key, required this.text, this.noteId});
 
   @override
   ConsumerState<ReadAloudButton> createState() => _ReadAloudButtonState();
@@ -28,6 +31,8 @@ class _ReadAloudButtonState extends ConsumerState<ReadAloudButton> {
   _TtsPhase _phase = _TtsPhase.idle;
   AudioPlayer? _player;
   String? _tempPath;
+  bool _isCached = false;
+  final _cache = TtsAudioCache();
 
   StreamSubscription<Duration>? _positionSub;
   StreamSubscription<Duration?>? _durationSub;
@@ -58,12 +63,14 @@ class _ReadAloudButtonState extends ConsumerState<ReadAloudButton> {
     await _player?.stop();
     _player?.dispose();
     _player = null;
-    if (_tempPath != null) {
+    // Only delete temp files, not cached ones
+    if (_tempPath != null && !_isCached) {
       try {
         await File(_tempPath!).delete();
       } catch (_) {}
-      _tempPath = null;
     }
+    _tempPath = null;
+    _isCached = false;
     _position = Duration.zero;
     _duration = Duration.zero;
     _playing = false;
@@ -95,15 +102,31 @@ class _ReadAloudButtonState extends ConsumerState<ReadAloudButton> {
     setState(() => _phase = _TtsPhase.synthesizing);
 
     try {
-      final bytes = await ttsService.synthesize(widget.text);
+      // Check cache first
+      String? filePath;
+      if (widget.noteId != null) {
+        filePath = await _cache.get(widget.noteId!, widget.text);
+      }
 
-      final dir = await getTemporaryDirectory();
-      final file = File('${dir.path}/tts_${DateTime.now().millisecondsSinceEpoch}.ogg');
-      await file.writeAsBytes(bytes);
-      _tempPath = file.path;
+      if (filePath != null) {
+        _isCached = true;
+        debugPrint('[ReadAloud] Cache hit for note ${widget.noteId}');
+      } else {
+        final bytes = await ttsService.synthesize(widget.text);
+        if (widget.noteId != null) {
+          filePath = await _cache.put(widget.noteId!, widget.text, bytes);
+          _isCached = true;
+        } else {
+          final dir = await getTemporaryDirectory();
+          final file = File('${dir.path}/tts_${DateTime.now().millisecondsSinceEpoch}.ogg');
+          await file.writeAsBytes(bytes);
+          filePath = file.path;
+        }
+      }
+      _tempPath = filePath;
 
       _player = AudioPlayer();
-      await _player!.setFilePath(file.path);
+      await _player!.setFilePath(filePath);
 
       if (!mounted) {
         await _cleanup();
@@ -284,10 +307,13 @@ class _ReadAloudButtonState extends ConsumerState<ReadAloudButton> {
 
 /// Standalone function for triggering read-aloud from non-widget contexts
 /// (e.g., popup menu callbacks). Shows a persistent player bar via SnackBar.
+///
+/// When [noteId] is provided, the audio is cached on device for instant replay.
 Future<void> readAloudFromContext({
   required BuildContext context,
   required WidgetRef ref,
   required String text,
+  String? noteId,
 }) async {
   final ttsService = ref.read(ttsApiServiceProvider);
   if (ttsService == null) {
@@ -321,14 +347,30 @@ Future<void> readAloudFromContext({
   );
 
   try {
-    final bytes = await ttsService.synthesize(text);
+    final cache = TtsAudioCache();
+    String? filePath;
 
-    final dir = await getTemporaryDirectory();
-    final file = File('${dir.path}/tts_${DateTime.now().millisecondsSinceEpoch}.ogg');
-    await file.writeAsBytes(bytes);
+    // Check cache first
+    if (noteId != null) {
+      filePath = await cache.get(noteId, text);
+    }
+
+    if (filePath != null) {
+      debugPrint('[ReadAloud] Cache hit for note $noteId');
+    } else {
+      final bytes = await ttsService.synthesize(text);
+      if (noteId != null) {
+        filePath = await cache.put(noteId, text, bytes);
+      } else {
+        final dir = await getTemporaryDirectory();
+        final file = File('${dir.path}/tts_${DateTime.now().millisecondsSinceEpoch}.ogg');
+        await file.writeAsBytes(bytes);
+        filePath = file.path;
+      }
+    }
 
     final player = AudioPlayer();
-    await player.setFilePath(file.path);
+    await player.setFilePath(filePath);
 
     if (context.mounted) {
       ScaffoldMessenger.of(context).clearSnackBars();
