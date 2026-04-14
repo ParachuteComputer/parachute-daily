@@ -23,7 +23,7 @@ class TranscriptionApiService {
     this.apiKey,
     this.model = 'whisper-large-v3',
     http.Client? client,
-    Duration timeout = const Duration(seconds: 60),
+    Duration timeout = const Duration(minutes: 10),
   })  : _client = client ?? http.Client(),
         _timeout = timeout;
 
