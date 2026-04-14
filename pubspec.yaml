@@ -30,6 +30,9 @@ dependencies:
   # Deep Links
   app_links: ^6.3.2
 
+  # External URLs (OAuth browser flow)
+  url_launcher: ^6.3.0
+
   # App Info
   package_info_plus: ^8.0.0
 

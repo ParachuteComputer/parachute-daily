@@ -7,6 +7,7 @@ import 'package:parachute/core/providers/app_state_provider.dart'
 import 'package:parachute/core/providers/feature_flags_provider.dart';
 import 'package:parachute/core/services/backend_health_service.dart';
 import 'package:parachute/core/services/graph_api_service.dart';
+import 'package:parachute/features/settings/services/oauth_service.dart';
 
 /// Server connection settings section — vault URL, API key, vault picker.
 class ServerSettingsSection extends ConsumerStatefulWidget {
@@ -23,6 +24,8 @@ class _ServerSettingsSectionState extends ConsumerState<ServerSettingsSection> {
   List<String>? _availableVaults;
   String? _selectedVault;
   bool _loadingVaults = false;
+  bool _showManualToken = false;
+  bool _connecting = false;
 
   @override
   void initState() {
@@ -46,7 +49,10 @@ class _ServerSettingsSectionState extends ConsumerState<ServerSettingsSection> {
     if (mounted) {
       setState(() {
         _serverUrlController.text = serverUrl;
-        if (apiKey != null) _apiKeyController.text = apiKey;
+        if (apiKey != null) {
+          _apiKeyController.text = apiKey;
+          _showManualToken = true;
+        }
         _selectedVault = vaultName;
       });
 
@@ -128,6 +134,62 @@ class _ServerSettingsSectionState extends ConsumerState<ServerSettingsSection> {
           backgroundColor: BrandColors.success,
         ),
       );
+    }
+  }
+
+  Future<void> _connectOAuth() async {
+    final url = _serverUrlController.text.trim();
+    if (url.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('Enter a server URL first'),
+          backgroundColor: BrandColors.warning,
+        ),
+      );
+      return;
+    }
+
+    // Persist the URL before launching so it survives the browser round-trip.
+    await _saveServerUrl();
+
+    setState(() => _connecting = true);
+    final oauth = OAuthService();
+    try {
+      final result = await oauth.connect(serverUrl: url);
+      _apiKeyController.text = result.token;
+      await ref.read(apiKeyProvider.notifier).setApiKey(result.token);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(result.vaultName != null
+                ? 'Connected to ${result.vaultName}'
+                : 'Connected to vault'),
+            backgroundColor: BrandColors.success,
+          ),
+        );
+        _fetchVaults(url);
+      }
+    } on OAuthException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Connection failed: ${e.message}'),
+            backgroundColor: BrandColors.error,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Connection failed: $e'),
+            backgroundColor: BrandColors.error,
+          ),
+        );
+      }
+    } finally {
+      oauth.dispose();
+      if (mounted) setState(() => _connecting = false);
     }
   }
 
@@ -278,25 +340,60 @@ class _ServerSettingsSectionState extends ConsumerState<ServerSettingsSection> {
         ),
         SizedBox(height: Spacing.md),
 
-        // API Key
-        TextField(
-          controller: _apiKeyController,
-          decoration: InputDecoration(
-            labelText: 'API Key',
-            hintText: 'para_... or pvk_...',
-            border: const OutlineInputBorder(),
-            prefixIcon: const Icon(Icons.key),
-            suffixIcon: IconButton(
-              icon: const Icon(Icons.clear),
-              onPressed: () {
-                _apiKeyController.clear();
-                _saveApiKey();
-              },
+        // Connect to Vault (OAuth)
+        SizedBox(
+          width: double.infinity,
+          child: FilledButton.icon(
+            onPressed: _connecting ? null : _connectOAuth,
+            icon: _connecting
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.lock_open, size: 18),
+            label: Text(_connecting ? 'Connecting...' : 'Connect to Vault'),
+            style: FilledButton.styleFrom(
+              backgroundColor: BrandColors.turquoise,
             ),
           ),
-          obscureText: true,
-          onSubmitted: (_) => _saveApiKey(),
         ),
+        SizedBox(height: Spacing.xs),
+        Align(
+          alignment: Alignment.centerRight,
+          child: TextButton(
+            onPressed: () {
+              setState(() => _showManualToken = !_showManualToken);
+            },
+            child: Text(
+              _showManualToken ? 'Hide manual token' : 'Use manual token',
+              style: const TextStyle(fontSize: 12),
+            ),
+          ),
+        ),
+
+        // API Key (manual fallback)
+        if (_showManualToken) ...[
+          SizedBox(height: Spacing.xs),
+          TextField(
+            controller: _apiKeyController,
+            decoration: InputDecoration(
+              labelText: 'API Key',
+              hintText: 'pvt_... or para_...',
+              border: const OutlineInputBorder(),
+              prefixIcon: const Icon(Icons.key),
+              suffixIcon: IconButton(
+                icon: const Icon(Icons.clear),
+                onPressed: () {
+                  _apiKeyController.clear();
+                  _saveApiKey();
+                },
+              ),
+            ),
+            obscureText: true,
+            onSubmitted: (_) => _saveApiKey(),
+          ),
+        ],
         SizedBox(height: Spacing.md),
 
         // Vault picker
