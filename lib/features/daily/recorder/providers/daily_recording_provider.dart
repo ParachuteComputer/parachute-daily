@@ -77,7 +77,10 @@ class DailyRecordingNotifier extends StateNotifier<DailyRecordingState> {
         isRecording: true,
         duration: Duration.zero,
         audioPath: null,
-        startedAt: DateTime.now(),
+        // Capture in UTC so it serializes with a `Z` suffix when sent to the
+        // vault. Local DateTimes emit a bare timestamp, which the server
+        // interprets as UTC and shifts by the user's offset.
+        startedAt: DateTime.now().toUtc(),
       );
 
       _startDurationTimer();

@@ -139,7 +139,10 @@ class DailyApiService {
       final body = jsonEncode({
         'content': content,
         'tags': tags,
-        if (createdAt != null) 'created_at': createdAt.toIso8601String(),
+        // Always send UTC with a `Z` suffix. A local `DateTime.toIso8601String()`
+        // emits a bare timestamp (no offset), which the server interprets as UTC
+        // and shifts by the user's offset.
+        if (createdAt != null) 'created_at': formatCreatedAt(createdAt),
       });
       final response = await _client
           .post(uri, headers: _headers, body: body)
@@ -477,6 +480,14 @@ String nextDate(String date) {
   final d = next.day.toString().padLeft(2, '0');
   return '$y-$m-$d';
 }
+
+/// Serialize a [DateTime] as a UTC ISO 8601 string (`Z`-suffixed).
+///
+/// The vault server treats bare timestamps (no offset or `Z`) as UTC, so a
+/// local `DateTime.toIso8601String()` — which has no suffix — would cause
+/// times to shift by the user's offset. Always route server-bound timestamps
+/// through this helper.
+String formatCreatedAt(DateTime dt) => dt.toUtc().toIso8601String();
 
 /// Parse a YYYY-MM-DD string as local midnight.
 ///
