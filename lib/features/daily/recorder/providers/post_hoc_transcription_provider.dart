@@ -269,17 +269,27 @@ class PostHocTranscriptionNotifier extends StateNotifier<PostHocTranscriptionSta
       _service?.dispose();
       _service = null;
 
-      // Clean up the staged audio file regardless of outcome. Safe because
-      // the server has its own copy (uploadAudio stored it before
-      // enqueue) — manual re-transcribe can pull the audio back from the
-      // server if the user wants to retry after a permanent failure. Only
-      // the crash-recovery path may leave files behind; `restartIncompleteJobs`
-      // already handles missing-file cases gracefully.
+      // Only delete the staged audio file if the server entry has confirmed
+      // non-empty content. If the update failed or transcription was empty,
+      // keep the local file so crash-recovery / manual retry can use it.
       try {
         final staged = File(audioPath);
         if (await staged.exists()) {
-          await staged.delete();
-          debugPrint('[PostHocTranscription] Cleaned up staged audio: $audioPath');
+          bool safeToDelete = false;
+          try {
+            final api = _ref.read(dailyApiServiceProvider);
+            final serverEntry = await api.getEntry(entryId);
+            safeToDelete = serverEntry != null && serverEntry.content.trim().isNotEmpty;
+          } catch (e) {
+            debugPrint('[PostHocTranscription] Could not verify server content, keeping audio: $e');
+          }
+
+          if (safeToDelete) {
+            await staged.delete();
+            debugPrint('[PostHocTranscription] Cleaned up staged audio: $audioPath');
+          } else {
+            debugPrint('[PostHocTranscription] Keeping staged audio (server content empty or unreachable): $audioPath');
+          }
         }
       } catch (e) {
         debugPrint('[PostHocTranscription] Failed to clean up staged audio: $e');
