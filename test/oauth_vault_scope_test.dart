@@ -15,8 +15,6 @@
 // servers).
 //
 // Run with: flutter test test/oauth_vault_scope_test.dart
-import 'dart:convert';
-
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -137,21 +135,10 @@ void main() {
     });
   });
 
-  group('Token JSON shape (documentation)', () {
-    // Not a unit test against OAuthService itself — _exchange is private,
-    // and the full flow needs url_launcher bindings. This pins the wire
-    // shape the client expects so the vault tentacle has a fixture to
-    // match.
-    test('access_token + vault are the two fields we read', () {
-      final body = jsonEncode({
-        'access_token': 'pvt_xyz',
-        'token_type': 'Bearer',
-        'scope': 'notes:read',
-        'vault': 'work',
-      });
-      final decoded = jsonDecode(body) as Map<String, dynamic>;
-      expect(decoded['access_token'], 'pvt_xyz');
-      expect(decoded['vault'], 'work');
-    });
-  });
+  // Note: _exchange behavior (reading access_token + vault from the token
+  // response, falling back to the user-supplied vault name when the server
+  // omits `vault`) is not unit-tested here because _exchange is private and
+  // the full connect() flow needs url_launcher / app_links bindings. The
+  // contract is documented on OAuthResult and exercised by the discovery
+  // tests above plus the OAuthResult.vaultName round-trip test.
 }

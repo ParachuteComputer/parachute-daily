@@ -77,4 +77,71 @@ void main() {
       expect(await api.fetchVaults(), isNull);
     });
   });
+
+  group('GraphApiService vault path encoding', () {
+    // Regression: previously the api prefix interpolated vaultName raw, so a
+    // vault named "my vault" produced `/vaults/my vault/api/...` and every
+    // note read/write got a malformed URL. Match the encoding done in
+    // BackendHealthService and OAuthService.
+    test('encodes vault names with spaces', () async {
+      String? observedPath;
+      final client = MockClient((req) async {
+        observedPath = req.url.path;
+        return http.Response(jsonEncode([]), 200);
+      });
+      final api = GraphApiService(
+        baseUrl: 'http://example.test',
+        vaultName: 'my vault',
+        client: client,
+      );
+      await api.queryNotes(tag: 'captured');
+      expect(observedPath, startsWith('/vaults/my%20vault/api/'));
+    });
+
+    test('encodes vault names with plus signs', () async {
+      String? observedPath;
+      final client = MockClient((req) async {
+        observedPath = req.url.path;
+        return http.Response(jsonEncode([]), 200);
+      });
+      final api = GraphApiService(
+        baseUrl: 'http://example.test',
+        vaultName: 'a+b',
+        client: client,
+      );
+      await api.queryNotes(tag: 'captured');
+      // Uri.encodeComponent turns `+` into `%2B`.
+      expect(observedPath, startsWith('/vaults/a%2Bb/api/'));
+    });
+
+    test('encodes vault names with percent signs', () async {
+      String? observedPath;
+      final client = MockClient((req) async {
+        observedPath = req.url.path;
+        return http.Response(jsonEncode([]), 200);
+      });
+      final api = GraphApiService(
+        baseUrl: 'http://example.test',
+        vaultName: '50%off',
+        client: client,
+      );
+      await api.queryNotes(tag: 'captured');
+      expect(observedPath, startsWith('/vaults/50%25off/api/'));
+    });
+
+    test('leaves safe vault names untouched', () async {
+      String? observedPath;
+      final client = MockClient((req) async {
+        observedPath = req.url.path;
+        return http.Response(jsonEncode([]), 200);
+      });
+      final api = GraphApiService(
+        baseUrl: 'http://example.test',
+        vaultName: 'work',
+        client: client,
+      );
+      await api.queryNotes(tag: 'captured');
+      expect(observedPath, startsWith('/vaults/work/api/'));
+    });
+  });
 }

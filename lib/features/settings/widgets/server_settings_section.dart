@@ -174,9 +174,9 @@ class _ServerSettingsSectionState extends ConsumerState<ServerSettingsSection> {
       // Auto-select the vault the token was minted against (server-reported
       // first, falling back to the name the user typed). This keeps the
       // app-wide vault selection coherent with the token the user just got.
-      if (result.vaultName != null && result.vaultName!.isNotEmpty) {
-        await _saveVaultName(result.vaultName);
-      }
+      // _saveVaultName handles null/empty by clearing the selection, matching
+      // how the clear button calls it.
+      await _saveVaultName(result.vaultName);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -339,6 +339,17 @@ class _ServerSettingsSectionState extends ConsumerState<ServerSettingsSection> {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
+    // Watch the current token + vault so the "Connected to vault X" status
+    // row updates as soon as OAuth writes them. Without this, the OAuth
+    // success indicator is a transient snackbar and first-time users retry
+    // the flow thinking it didn't work.
+    final apiKey = ref.watch(apiKeyProvider).valueOrNull;
+    final vaultName = ref.watch(vaultNameProvider).valueOrNull;
+    final isConnected = apiKey != null &&
+        apiKey.isNotEmpty &&
+        vaultName != null &&
+        vaultName.isNotEmpty;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -394,24 +405,30 @@ class _ServerSettingsSectionState extends ConsumerState<ServerSettingsSection> {
         ),
         SizedBox(height: Spacing.md),
 
-        // Connect to Vault (OAuth)
-        SizedBox(
-          width: double.infinity,
-          child: FilledButton.icon(
-            onPressed: _connecting ? null : _connectOAuth,
-            icon: _connecting
-                ? const SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.lock_open, size: 18),
-            label: Text(_connecting ? 'Connecting...' : 'Connect to Vault'),
-            style: FilledButton.styleFrom(
-              backgroundColor: BrandColors.turquoise,
+        // Connected status row — only when token + vault are both set.
+        // Replaces the "Connect to Vault" CTA so first-time users see a clear
+        // persistent success indicator instead of relying on the transient
+        // snackbar alone.
+        if (isConnected)
+          _buildConnectedStatusRow(isDark, vaultName)
+        else
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: _connecting ? null : _connectOAuth,
+              icon: _connecting
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.lock_open, size: 18),
+              label: Text(_connecting ? 'Connecting...' : 'Connect to Vault'),
+              style: FilledButton.styleFrom(
+                backgroundColor: BrandColors.turquoise,
+              ),
             ),
           ),
-        ),
         SizedBox(height: Spacing.xs),
         Align(
           alignment: Alignment.centerRight,
@@ -479,6 +496,81 @@ class _ServerSettingsSectionState extends ConsumerState<ServerSettingsSection> {
         ),
       ],
     );
+  }
+
+  /// One-line "Connected to vault X" status with a subtle Disconnect button.
+  ///
+  /// Shown instead of the "Connect to Vault" CTA when the user has both a
+  /// token and a vault name configured. Disconnect clears the token (and only
+  /// the token — the URL and vault name stay so the user can re-Connect
+  /// without re-typing).
+  Widget _buildConnectedStatusRow(bool isDark, String vaultName) {
+    final bg = isDark
+        ? BrandColors.success.withValues(alpha: 0.15)
+        : BrandColors.success.withValues(alpha: 0.08);
+    final fg = isDark ? BrandColors.nightText : BrandColors.charcoal;
+
+    return Container(
+      key: const ValueKey('connected-status-row'),
+      padding: EdgeInsets.symmetric(
+        horizontal: Spacing.md,
+        vertical: Spacing.sm,
+      ),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: BrandColors.success.withValues(alpha: 0.4)),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            Icons.check_circle,
+            color: BrandColors.success,
+            size: 20,
+          ),
+          SizedBox(width: Spacing.sm),
+          Expanded(
+            child: Text(
+              'Connected to vault "$vaultName"',
+              style: TextStyle(
+                fontSize: TypographyTokens.bodyMedium,
+                fontWeight: FontWeight.w500,
+                color: fg,
+              ),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          SizedBox(width: Spacing.sm),
+          TextButton(
+            onPressed: _connecting ? null : _disconnect,
+            style: TextButton.styleFrom(
+              padding: EdgeInsets.symmetric(horizontal: Spacing.sm),
+              minimumSize: const Size(0, 32),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            child: const Text(
+              'Disconnect',
+              style: TextStyle(fontSize: 13),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _disconnect() async {
+    // Clear the token only; leave the server URL and vault name so the user
+    // can re-Connect without retyping. Matches the "reconnect" mental model.
+    _apiKeyController.clear();
+    await ref.read(apiKeyProvider.notifier).setApiKey(null);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('Disconnected from vault'),
+          backgroundColor: BrandColors.warning,
+        ),
+      );
+    }
   }
 
   Widget _buildVaultPicker(bool isDark) {

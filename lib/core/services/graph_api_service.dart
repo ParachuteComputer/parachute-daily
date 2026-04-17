@@ -29,9 +29,14 @@ class GraphApiService {
         _timeout = timeout;
 
   /// API path prefix — `/api` for default vault, `/vaults/{name}/api` for named vault.
+  ///
+  /// Vault names with spaces, `+`, `%`, or other URL-unsafe characters must be
+  /// encoded or the resulting path is malformed. Matches the encoding done in
+  /// [BackendHealthService._apiPrefix] and [OAuthService._discover].
   String get _apiPrefix {
-    if (vaultName != null && vaultName!.isNotEmpty) {
-      return '/vaults/$vaultName/api';
+    final name = vaultName;
+    if (name != null && name.isNotEmpty) {
+      return '/vaults/${Uri.encodeComponent(name)}/api';
     }
     return '/api';
   }

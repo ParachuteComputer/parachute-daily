@@ -92,6 +92,38 @@ void main() {
       expect(result.vaultName, 'ghost');
     });
 
+    test('maps 403 on vault-scoped health to wrongVault', () async {
+      // A token that authenticates cleanly against the server but is not
+      // authorized for this specific vault is a wrong-vault problem, not a
+      // wrong-token problem. The user should re-run Connect to Vault with
+      // the right vault selected, not swap out their credential.
+      final client = MockClient((_) async => http.Response('forbidden', 403));
+      final svc = BackendHealthService(
+        baseUrl: 'http://example.test',
+        apiKey: 'para_default_vault_token',
+        vaultName: 'work',
+        client: client,
+      );
+      final result = await svc.verifyConnection();
+      expect(result.kind, VerifyResultKind.wrongVault);
+      expect(result.statusCode, 403);
+      expect(result.vaultName, 'work');
+    });
+
+    test('403 without a vault set still maps to unauthorized', () async {
+      // With no vault scope, 403 means the token itself is rejected — there
+      // is no "wrong vault" to suggest.
+      final client = MockClient((_) async => http.Response('forbidden', 403));
+      final svc = BackendHealthService(
+        baseUrl: 'http://example.test',
+        apiKey: 'para_bad',
+        client: client,
+      );
+      final result = await svc.verifyConnection();
+      expect(result.kind, VerifyResultKind.unauthorized);
+      expect(result.statusCode, 403);
+    });
+
     test('maps 401 on notes (after healthy /health) to unauthorized', () async {
       // Regression: server where /health is public but data routes require
       // auth. verifyConnection must probe both; otherwise Test Connection

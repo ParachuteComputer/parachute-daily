@@ -219,19 +219,24 @@ class BackendHealthService {
       final uri = Uri.parse('$baseUrl$_apiPrefix/health');
       final resp = await _client.get(uri, headers: _authHeaders).timeout(timeout);
       final code = resp.statusCode;
-      if (code == 401 || code == 403) {
+      // 403/404 on a vault-scoped path means the server is up but our token
+      // isn't accepted for *this* vault (either the vault name is wrong or
+      // the token was minted for a different vault). Report wrong_vault so
+      // the user gets actionable text — "re-run Connect to Vault against
+      // the right vault" — instead of a generic "unauthorized" that suggests
+      // their whole token is bad.
+      if ((code == 403 || code == 404) &&
+          vaultName != null &&
+          vaultName!.isNotEmpty) {
         return VerifyConnectionResult(
-          kind: VerifyResultKind.unauthorized,
+          kind: VerifyResultKind.wrongVault,
           statusCode: code,
           vaultName: vaultName,
         );
       }
-      // 404 on a vault-scoped health endpoint means the server is up but
-      // doesn't know this vault by that name — treat as wrong_vault so the
-      // user gets actionable text, not a generic "server error".
-      if (code == 404 && vaultName != null && vaultName!.isNotEmpty) {
+      if (code == 401 || code == 403) {
         return VerifyConnectionResult(
-          kind: VerifyResultKind.wrongVault,
+          kind: VerifyResultKind.unauthorized,
           statusCode: code,
           vaultName: vaultName,
         );
@@ -280,16 +285,20 @@ class BackendHealthService {
           vaultName: vaultName,
         );
       }
-      if (code == 401 || code == 403) {
+      // See comment above: 403/404 on a vault-scoped path means wrong vault,
+      // not wrong token.
+      if ((code == 403 || code == 404) &&
+          vaultName != null &&
+          vaultName!.isNotEmpty) {
         return VerifyConnectionResult(
-          kind: VerifyResultKind.unauthorized,
+          kind: VerifyResultKind.wrongVault,
           statusCode: code,
           vaultName: vaultName,
         );
       }
-      if (code == 404 && vaultName != null && vaultName!.isNotEmpty) {
+      if (code == 401 || code == 403) {
         return VerifyConnectionResult(
-          kind: VerifyResultKind.wrongVault,
+          kind: VerifyResultKind.unauthorized,
           statusCode: code,
           vaultName: vaultName,
         );
