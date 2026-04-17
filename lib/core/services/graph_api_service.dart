@@ -29,9 +29,14 @@ class GraphApiService {
         _timeout = timeout;
 
   /// API path prefix — `/api` for default vault, `/vaults/{name}/api` for named vault.
+  ///
+  /// Vault names with spaces, `+`, `%`, or other URL-unsafe characters must be
+  /// encoded or the resulting path is malformed. Matches the encoding done in
+  /// [BackendHealthService._apiPrefix] and [OAuthService._discover].
   String get _apiPrefix {
-    if (vaultName != null && vaultName!.isNotEmpty) {
-      return '/vaults/$vaultName/api';
+    final name = vaultName;
+    if (name != null && name.isNotEmpty) {
+      return '/vaults/${Uri.encodeComponent(name)}/api';
     }
     return '/api';
   }
@@ -258,27 +263,42 @@ class GraphApiService {
   // ---- Vaults ----
 
   /// Fetch the list of available vaults from the server.
-  /// Returns vault names, or null on error.
+  ///
+  /// Accepts either a bare JSON array (`[{name: ...}, ...]` or `["a","b"]`)
+  /// or the wrapped object form the server currently returns
+  /// (`{vaults: [{name: ...}, ...]}`).
+  ///
+  /// Returns vault names, or null on error / unrecognized shape.
   Future<List<String>?> fetchVaults() async {
     try {
       final uri = Uri.parse('$baseUrl/vaults');
       final response = await _client.get(uri, headers: _headers()).timeout(
         const Duration(seconds: 5),
       );
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        if (data is List) {
-          return data
-              .map((v) => (v is Map ? v['name'] as String? : v?.toString()) ?? '')
-              .where((n) => n.isNotEmpty)
-              .toList();
-        }
-      }
-      return null;
+      if (response.statusCode != 200) return null;
+
+      final decoded = jsonDecode(response.body);
+      final list = _extractVaultList(decoded);
+      if (list == null) return null;
+
+      return list
+          .map((v) => (v is Map ? v['name'] as String? : v?.toString()) ?? '')
+          .where((n) => n.isNotEmpty)
+          .toList();
     } catch (e) {
       debugPrint('[GraphApiService] fetchVaults error: $e');
       return null;
     }
+  }
+
+  /// Pull the vault list out of either a bare array or `{vaults: [...]}`.
+  List<dynamic>? _extractVaultList(dynamic decoded) {
+    if (decoded is List) return decoded;
+    if (decoded is Map<String, dynamic>) {
+      final v = decoded['vaults'];
+      if (v is List) return v;
+    }
+    return null;
   }
 
   // ---- HTTP Helpers ----

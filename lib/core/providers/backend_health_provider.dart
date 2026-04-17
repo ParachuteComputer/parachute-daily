@@ -3,17 +3,26 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../services/backend_health_service.dart';
 import '../services/transcription_api_service.dart';
 import '../services/tts_api_service.dart';
-import 'app_state_provider.dart' show apiKeyProvider;
+import 'app_state_provider.dart' show apiKeyProvider, vaultNameProvider;
 import 'feature_flags_provider.dart';
 import '../../features/daily/recorder/providers/service_providers.dart'
     show transcriptionServiceUrlProvider, transcriptionServiceApiKeyProvider,
          ttsServiceUrlProvider, ttsServiceApiKeyProvider;
 
-/// Provider for backend health service (includes API key for authenticated endpoints)
+/// Provider for backend health service (includes API key for authenticated endpoints).
+///
+/// Health checks route through the vault-scoped prefix (`/vaults/<name>/api`)
+/// when a vault is selected, so the periodic reachability indicator reflects
+/// the path the app actually uses to read/write notes.
 final backendHealthServiceProvider = Provider<BackendHealthService>((ref) {
   final url = ref.watch(aiServerUrlProvider).valueOrNull ?? '';
   final key = ref.watch(apiKeyProvider).valueOrNull;
-  final service = BackendHealthService(baseUrl: url, apiKey: key);
+  final vault = ref.watch(vaultNameProvider).valueOrNull;
+  final service = BackendHealthService(
+    baseUrl: url,
+    apiKey: key,
+    vaultName: vault,
+  );
   ref.onDispose(() => service.dispose());
   return service;
 });

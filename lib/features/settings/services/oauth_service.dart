@@ -54,15 +54,23 @@ class OAuthService {
   /// Throws [OAuthException] if cancelled, timed out, or rejected.
   ///
   /// [serverUrl] is the vault base URL (e.g. `https://parachute.example.ts.net`).
+  /// [vaultName], if supplied, scopes OAuth to that specific vault — discovery
+  /// runs against `/vaults/<name>/.well-known/oauth-authorization-server` and
+  /// the issued token is bound to that vault only. Omit or pass null/empty to
+  /// authorize against the default vault (unscoped flow).
   /// [timeout] applies to the whole browser + redirect window.
   Future<OAuthResult> connect({
     required String serverUrl,
+    String? vaultName,
     Duration timeout = const Duration(minutes: 5),
   }) async {
     final normalizedUrl = _normalizeServerUrl(serverUrl);
+    final scopedVault = (vaultName == null || vaultName.trim().isEmpty)
+        ? null
+        : vaultName.trim();
 
-    // 1. Discovery
-    final discovery = await _discover(normalizedUrl);
+    // 1. Discovery — vault-scoped when a vault is selected.
+    final discovery = await _discover(normalizedUrl, vaultName: scopedVault);
 
     // 2. Dynamic client registration
     final clientId = await _register(discovery.registrationEndpoint);
@@ -112,12 +120,20 @@ class OAuthService {
       code: code,
       verifier: verifier,
       clientId: clientId,
+      fallbackVaultName: scopedVault,
     );
   }
 
-  Future<_Discovery> _discover(String serverUrl) async {
+  /// Discover OAuth endpoints. When [vaultName] is provided, discovery is
+  /// vault-scoped (`/vaults/<name>/.well-known/...`) so the resulting token
+  /// is bound to that vault.
+  Future<_Discovery> _discover(String serverUrl, {String? vaultName}) async {
+    final prefix = (vaultName == null || vaultName.isEmpty)
+        ? ''
+        : '/vaults/${Uri.encodeComponent(vaultName)}';
+
     // Try RFC 8414 authorization-server metadata first.
-    final authServerUrl = Uri.parse('$serverUrl/.well-known/oauth-authorization-server');
+    final authServerUrl = Uri.parse('$serverUrl$prefix/.well-known/oauth-authorization-server');
     try {
       final resp = await _http.get(authServerUrl).timeout(const Duration(seconds: 10));
       if (resp.statusCode == 200) {
@@ -138,7 +154,7 @@ class OAuthService {
     }
 
     // Fallback: protected-resource discovery points at an authorization server.
-    final prUrl = Uri.parse('$serverUrl/.well-known/oauth-protected-resource');
+    final prUrl = Uri.parse('$serverUrl$prefix/.well-known/oauth-protected-resource');
     try {
       final resp = await _http.get(prUrl).timeout(const Duration(seconds: 10));
       if (resp.statusCode == 200) {
@@ -191,6 +207,7 @@ class OAuthService {
     required String code,
     required String verifier,
     required String clientId,
+    String? fallbackVaultName,
   }) async {
     final resp = await _http.post(
       Uri.parse(tokenEndpoint),
@@ -219,10 +236,15 @@ class OAuthService {
     if (token == null) {
       throw OAuthException('Token response missing access_token', code: 'token_exchange_failed');
     }
+    // Prefer the server-authoritative vault name; fall back to the one the
+    // user scoped the flow to (so we still know which vault this token binds
+    // to when the server is pre-`vault`-field).
+    final reportedVault =
+        data['vault'] as String? ?? data['vault_name'] as String?;
     return OAuthResult(
       token: token,
       scope: data['scope'] as String?,
-      vaultName: data['vault'] as String? ?? data['vault_name'] as String?,
+      vaultName: reportedVault ?? fallbackVaultName,
     );
   }
 
